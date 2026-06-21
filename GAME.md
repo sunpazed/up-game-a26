@@ -147,3 +147,44 @@ Use this sequence to avoid large unverified jumps:
 ### Gate 4: HUD and polish pass
 - Replace placeholder HUD with explicit score/high-score presentation.
 - Add game-over text style closer to source screenshots.
+
+## 8. Current Status (Verified)
+
+### Stable Baseline Kernel
+- `make` builds successfully.
+- `build/up.a26` currently uses a stable debug kernel modeled after `examples/example.asm`.
+- The debug kernel renders all five TIA objects on every visible scanline.
+- `build/up.png` was reviewed and verified as stable:
+  - no rolling,
+  - stable color,
+  - visible P0/P1/M0/M1/Ball debug objects.
+- Current debug movement is constant-cycle: P1, M0, M1, and Ball move right-to-left and wrap; P0 remains fixed.
+
+### Temporarily Disabled
+- Platforms are currently disabled from the visible kernel.
+- Gameplay update logic is disabled from overscan for timing safety.
+- Full gameplay logic remains disabled; only the constant-cycle debug movement slot is active.
+- HUD, score rendering, entities, collisions, and game-over rendering are not active in the current verified baseline.
+
+### Why This Reset Was Needed
+- Previous platform attempts rolled because overscan and visible-kernel work were not fixed-budget.
+- Extra `SetHorizPos` calls consumed extra `WSYNC`s without matching overscan budget.
+- Variable per-scanline branch ladders made platform timing fragile.
+
+## 9. Next Milestone
+
+### Gate 1A: Reintroduce Six Static Platforms
+- Starting point: current stable debug kernel only.
+- Add exactly six platform bands using table-selected values.
+- Preserve fixed writes to `GRP0`, `GRP1`, `ENAM0`, `ENAM1`, and `ENABL` every visible scanline.
+- Do not add gameplay updates yet.
+- Verification: `make` passes and `build/up.png` remains stable with color.
+
+### Gate 1B: Reintroduce One Moving Gap Marker
+- Use one object as a visible debug gap marker.
+- Move it only during fixed-budget overscan/VBLANK.
+- Verification: no rolling, no color instability.
+
+### Gate 2: Player Lane Movement
+- Re-enable player lane movement only after Gate 1A/1B are stable.
+- Lowest lane remains safe; falling at bottom does not game over.

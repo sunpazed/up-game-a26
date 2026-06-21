@@ -1,0 +1,12 @@
+build/
+
+# macOS metadata
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# editor/local files
+*.swp
+*.swo
+*~

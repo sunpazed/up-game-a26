@@ -34,6 +34,11 @@ PLAYER_GAP_MAX      equ 44
 GAP_X_MIN           equ 8
 GAP_X_MAX           equ 152
 
+DEBUG_P1_X_RESET    equ 110
+DEBUG_M0_X_RESET    equ 80
+DEBUG_M1_X_RESET    equ 50
+DEBUG_BALL_X_RESET  equ 20
+
 CONE_RESPAWN_X      equ 176
 SKULL_RESPAWN_X     equ 200
 
@@ -54,6 +59,11 @@ JumpPressed         ds 1
 PlayerX             ds 1
 PlayerY             ds 1
 PlayerLane          ds 1
+
+DebugP1X            ds 1
+DebugM0X            ds 1
+DebugM1X            ds 1
+DebugBallX          ds 1
 
 Scroll              ds 1
 
@@ -104,15 +114,25 @@ Start
 ; Main frame loop.
 ; The high-level flow is kept explicit and easy to audit.
 NextFrame
-	VERTICAL_SYNC
-
+	; Explicit NTSC frame start.
+	; 3 VSYNC lines + 37 VBLANK lines + 192 visible + 30 overscan = 262.
 	lda #2
 	sta VBLANK
+	sta VSYNC
+	sta WSYNC
+	sta WSYNC
+	sta WSYNC
+	lda #0
+	sta VSYNC
 
-	; 36 scanlines of VBLANK. The VERTICAL_SYNC macro consumes 4 WSYNCs
-	; total (3 VSYNC-on lines plus the line that turns VSYNC off), so this
-	; keeps the full frame at 262 NTSC scanlines: 4 + 36 + 192 + 30.
-	SKIP_SCANLINES 36
+	; Update the moving debug objects inside VBLANK, bounded by WSYNCs so it
+	; cannot shift the visible/overscan timing.
+	sta WSYNC
+	jsr UpdateDebugObjects
+	sta WSYNC
+
+	; VBLANK is 37 lines total: 2 update/alignment lines + 35 skipped lines.
+	SKIP_SCANLINES 35
 
 	lda #0
 	sta VBLANK
@@ -123,14 +143,13 @@ NextFrame
 	; Overscan with timed housekeeping.
 	lda #2
 	sta VBLANK
-	; Debug baseline: keep overscan purely scanline-budgeted. Gameplay update
-	; routines run for variable CPU time, so leave them disabled until the kernel
-	; is stable and then reintroduce them inside a timer-budgeted block.
-	; PositionObjects calls SetHorizPos five times. SetHorizPos burns two WSYNCs
-	; per object, so this consumes 10 overscan scanlines.
+	; PositionObjects calls SetHorizPosNoHMOVE five times. The example-style
+	; routine burns one WSYNC per object, then ApplyHorizMotion burns one final
+	; WSYNC. Total positioning cost: 6 overscan scanlines.
 	jsr PositionObjects
-	; Complete the 30-line overscan budget: 10 positioning + 20 idle.
-	SKIP_SCANLINES 20
+	jsr ApplyHorizMotion
+	; Complete the 30-line overscan budget: 6 positioning + 24 idle.
+	SKIP_SCANLINES 24
 
 	jmp NextFrame
 
@@ -165,6 +184,14 @@ InitRound
 
 	lda #PLAYER_X_RESET
 	sta PlayerX
+	lda #DEBUG_P1_X_RESET
+	sta DebugP1X
+	lda #DEBUG_M0_X_RESET
+	sta DebugM0X
+	lda #DEBUG_M1_X_RESET
+	sta DebugM1X
+	lda #DEBUG_BALL_X_RESET
+	sta DebugBallX
 	lda #PLAYER_START_LANE
 	sta PlayerLane
 	jsr SyncPlayerY
@@ -251,6 +278,34 @@ UpdateWorld_Playing
 	; Entity updates/collisions will be re-enabled in the next gate.
 
 UpdateWorld_Done
+	rts
+
+; UpdateDebugObjects: move all non-player debug objects right-to-left.
+; Constant-cycle update for all four moving objects.
+; Each object does: DEC zp, LDY zp, LDA table,Y, STA zp = 15 cycles.
+; Four objects + RTS = 66 cycles, safely inside one scanline.
+; P0/player remains fixed. Table maps 0 -> 160, all other values to self.
+UpdateDebugObjects
+	dec DebugP1X
+	ldy DebugP1X
+	lda MoveWrapTable,y
+	sta DebugP1X
+
+	dec DebugM0X
+	ldy DebugM0X
+	lda MoveWrapTable,y
+	sta DebugM0X
+
+	dec DebugM1X
+	ldy DebugM1X
+	lda MoveWrapTable,y
+	sta DebugM1X
+
+	dec DebugBallX
+	ldy DebugBallX
+	lda MoveWrapTable,y
+	sta DebugBallX
+
 	rts
 
 ; UpdateGaps: moves one shared missile gap left/right.
@@ -502,25 +557,26 @@ SyncSkullY
 ; Debug milestone: position all five TIA objects like examples/example.asm.
 ; X index mapping for SetHorizPos: 0=P0, 1=P1, 2=M0, 3=M1, 4=Ball.
 PositionObjects
+	sta HMCLR
 	ldx #0
 	lda PlayerX
-	jsr SetHorizPos
+	jsr SetHorizPosNoHMOVE
 
 	ldx #1
-	lda #64
-	jsr SetHorizPos
+	lda DebugP1X
+	jsr SetHorizPosNoHMOVE
 
 	ldx #2
-	lda #88
-	jsr SetHorizPos
+	lda DebugM0X
+	jsr SetHorizPosNoHMOVE
 
 	ldx #3
-	lda #112
-	jsr SetHorizPos
+	lda DebugM1X
+	jsr SetHorizPosNoHMOVE
 
 	ldx #4
-	lda #136
-	jsr SetHorizPos
+	lda DebugBallX
+	jsr SetHorizPosNoHMOVE
 	rts
 
 ; DrawKernel: 192 visible scanlines.
@@ -564,6 +620,25 @@ DrawKernel_Loop
 	sta ENAM0
 	sta ENAM1
 	sta ENABL
+
+	; Mid-screen missile offset experiment.
+	; At halfway, shift both missiles 16 pixels left by applying two -8 HMOVEs.
+	; HMCLR clears player/ball motion first, so only HMM0/HMM1 are active.
+	cpx #96
+	bne DrawKernel_CheckSecondMissileOffset
+	sta HMCLR
+	lda #$80
+	sta HMM0
+	sta HMM1
+	sta HMOVE
+	jmp DrawKernel_NoMidMissileOffset
+
+DrawKernel_CheckSecondMissileOffset
+	cpx #95
+	bne DrawKernel_NoMidMissileOffset
+	sta HMOVE
+
+DrawKernel_NoMidMissileOffset
 	iny
 	cpy #8
 	bne DrawKernel_NoWrap
@@ -587,17 +662,23 @@ DrawKernel_Done
 DrawHUD
 	rts
 
-; SetHorizPos
+; SetHorizPosNoHMOVE
 ; IN:  A = X position, X = object index (0=P0,1=P1,2=M0,3=M1,4=BL)
-; OUT: Coarse/fine horizontal position applied with HMOVE.
-SetHorizPos
+; OUT: Coarse position reset and fine value stored.
+; This keeps the same 6-cycle delay before SEC as examples/example.asm
+; (`sta HMOVE` + `sta HMCLR`) but does not clear all HMPx values per object.
+; Clear HMCLR once before positioning the batch, then call ApplyHorizMotion.
+; Note: examples/hmove74.asm is a specialized one-object routine. It times
+; RESP0 and HMOVE together around cycle 74 using quickPos/jump tables. Do not
+; use that as a drop-in replacement for this five-object batched routine.
+SetHorizPosNoHMOVE
 	sta WSYNC
-	sta HMCLR
+	SLEEP 6
 	sec
 
-SetHorizPos_DivideLoop
+SetHorizPosNoHMOVE_DivideLoop
 	sbc #15
-	bcs SetHorizPos_DivideLoop
+	bcs SetHorizPosNoHMOVE_DivideLoop
 	eor #7
 	asl
 	asl
@@ -605,6 +686,10 @@ SetHorizPos_DivideLoop
 	asl
 	sta RESP0,x
 	sta HMP0,x
+	rts
+
+; ApplyHorizMotion: apply final fine offsets after all SetHorizPos calls.
+ApplyHorizMotion
 	sta WSYNC
 	sta HMOVE
 	rts
@@ -668,6 +753,17 @@ DebugSprite
 	.byte %00100100
 	.byte %01000010
 	.byte %10000001
+
+; Constant-cycle movement wrap table.
+; Index with the value after DEC. 0 wraps to 160; all other values preserve the
+; decremented value. This removes branch timing from object movement updates.
+MoveWrapTable
+	.byte 160
+.moveWrapValue SET 1
+	REPEAT 255
+	.byte .moveWrapValue
+.moveWrapValue SET .moveWrapValue + 1
+	REPEND
 
 ; 7-line player sprite.
 PlayerSprite

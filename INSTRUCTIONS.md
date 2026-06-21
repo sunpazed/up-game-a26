@@ -108,3 +108,32 @@ Use these files as implementation references while building `src/up.asm`.
 - Work in small milestones that always end in a successful `make` build.
 - After each milestone, run in emulator and verify expected behavior before starting the next milestone.
 - Keep a short verification checklist in `GAME.md` and mark gates as they pass.
+
+### 8) Current verified baseline (important)
+- The current stable kernel is intentionally based on `examples/example.asm`.
+- It renders all five TIA objects every visible scanline:
+  - Player 0 (`GRP0`)
+  - Player 1 (`GRP1`)
+  - Missile 0 (`ENAM0`)
+  - Missile 1 (`ENAM1`)
+  - Ball (`ENABL`)
+- Platforms and gameplay are temporarily disabled in the visible kernel.
+- This baseline was verified in Stella via `build/up.png`: stable picture, stable color, no rolling.
+- Current debug movement is intentionally constant-cycle: Player 1, Missile 0, Missile 1, and Ball move right-to-left and wrap; Player 0 remains fixed.
+- Do not reintroduce platforms with variable per-scanline compare ladders or variable overscan work.
+
+### 9) Frame timing rules from the stable baseline
+- Keep the frame at exactly 262 NTSC scanlines.
+- Current timing budget:
+  - Explicit VSYNC: 3 scanlines.
+  - VBLANK: 37 scanlines.
+  - Visible kernel: 192 scanlines.
+  - Overscan: 30 scanlines.
+- Batched positioning uses five `SetHorizPosNoHMOVE` calls plus one final `ApplyHorizMotion`, for 6 overscan scanlines total.
+- Gameplay update logic must be reintroduced only inside a fixed timer budget, not as free-running code between `WSYNC`s.
+- `examples/hmove74.asm` is a reference for specialized one-object cycle-74 HMOVE positioning, not a drop-in replacement for the current five-object batched positioning routine.
+
+### 10) Next implementation rule
+- Reintroduce six platforms on top of the stable debug kernel incrementally.
+- Keep writes to `GRP0`, `GRP1`, `ENAM0`, `ENAM1`, and `ENABL` on every visible scanline.
+- Prefer table-selected register values over branches inside the visible kernel.
