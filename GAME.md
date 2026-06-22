@@ -211,9 +211,15 @@ Key implementation facts not obvious from a quick skim:
   If code grows again, bump the `org`s (keep PosTblM0/P1 page-aligned at offset 0).
 - Cross-cutting deferred: sprite masking for clean edge slide-in/out (pairs with M7 animations).
 
-### M7 — Object animations  ⬜
-- Animated frames for the entities (the JS skull cycles 4 frames; cone could shimmer). Drive
-  from a frame counter; select the GRP1 bitmap per animation step.
+### M7 — Object animations  🔶 IN PROGRESS
+- **Player run-cycle ✅** — two `GRP0` frames (`PlayerSprite0/1`, same page, selected via
+  `PlayerFrameLo[animFrame]`). `AnimatePlayer` (overscan, playing only) swaps frames on a
+  countdown whose interval **shortens with scroll speed**: `interval = ANIM_BASE - (scrollSpeed>>3)`
+  (~18 frames/swap at base speed → ~6 at top speed). Frozen during game over. RAM: `animFrame`,
+  `animTimer`. User redrew both player frames + the cone/skull bitmaps and tweaked the palette
+  (`COL_BG=$0E`, `COL_CONE=$2C`, `COL_SKULL=$46`).
+- **Entities ⬜** — animated frames for cone/skull (the JS skull cycles 4 frames). Drive from a
+  frame counter; select the GRP1 bitmap per step.
 - Depends on / pairs with **sprite masking for scrolling** (below).
 
 ### M8 — Power-up  ⬜
@@ -607,5 +613,8 @@ materially steered the implementation. Recording the key interventions:
   the band at 30 lines. The gap is now prepped on the last body line (after the player draws) so
   it stays clip-free, and the sprite + VDEL-latch clear happens in the green's HBLANK before
   pixel 0 — no foot row needed.
+- **Directed M7 to start with the player run cycle**: duplicate the player sprite for manual
+  editing, swap between frames, and **shorten the swap interval as scroll speed increases**. Then
+  hand-edited both player frames + the cone/skull graphics and adjusted the palette.
 - **Process: keep the `.md` docs updated between milestones**, with detailed implementation
   writeups — and maintain this steering log.

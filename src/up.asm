@@ -34,7 +34,7 @@
 ;-------------------------------------------------------------
 ; Constants
 ;-------------------------------------------------------------
-COL_BG       = $0C      ; light grey background
+COL_BG       = $0E      ; light grey background
 COL_GREEN    = $C8      ; platform top (green)
 COL_GREY     = $06      ; platform underside (dark grey)
 COL_PLAYER   = $02      ; player sprite (dark grey)
@@ -59,8 +59,8 @@ FALL_HI      = 18       ;   ~15 (measured: gap fully under the player at gapX~15
 ; entities (GRP1): one per platform, scroll right-to-left
 ENT_CONE     = 1        ; gold collectible (+1 score)
 ENT_SKULL    = 2        ; red hazard
-COL_CONE     = $1E      ; gold / yellow
-COL_SKULL    = $44      ; red
+COL_CONE     = $2C      ; gold / yellow
+COL_SKULL    = $46      ; red
 ENT_WRAP     = 152      ; respawn x. Kept <=152 so the 8px GRP1 object never
                         ; reaches the wrap zone (153-159): an object there would
                         ; mod-160 wrap part of the sprite to the LEFT edge,
@@ -76,6 +76,11 @@ ENT_DEFER      = 16     ;   (it would overlap the spawn x); recheck after this m
 SPEED_BASE   = 32       ; base speed (= 1.0 px/frame)
 SPEED_INC    = 1        ; per cone (= +0.125 px/frame; ~24 cones to top speed)
 SPEED_MAX    = 128      ; cap (= 4.0 px/frame; <= the fall window so falls hold)
+
+; Player run-cycle animation. The frame swaps every animTimer frames, and the
+; interval shortens with scroll speed: interval = ANIM_BASE - (scrollSpeed >> 3).
+; (scrollSpeed 32..128 -> interval 18..6 frames; keep ANIM_BASE > SPEED_MAX>>3.)
+ANIM_BASE    = 22
 
 COL_GAMEOVER = $42      ; red background tint while game over
 
@@ -117,6 +122,8 @@ gameState       ds 1    ; 0 = playing, 1 = game over
 scoreBCD        ds 3    ; BCD score (low 4 digits shown)
 hiScore         ds 2    ; 4-digit BCD high score (persists across games)
 goCnt           ds 1    ; game-over text cycle: 0-119 GAMEOVER, 120-239 HInnnn
+animFrame       ds 1    ; player run-cycle frame (0 or 1)
+animTimer       ds 1    ; frames left until the next player-frame swap
 Digit0          ds 12   ; 6 font pointers (Digit0..Digit5) for the score kernel
 loopCnt         ds 1    ; scanline counter inside DrawDigits
 
@@ -175,6 +182,9 @@ NewGame
 	sta scoreBCD+1
 	sta scoreBCD+2
 	sta scrollFrac
+	sta animFrame           ; start on run-cycle frame 0
+	lda #ANIM_BASE
+	sta animTimer
 	lda #SPEED_BASE
 	sta scrollSpeed         ; start each game at base speed (1 px/frame)
 
@@ -311,11 +321,16 @@ BandLoop
 	lda #$80
 	sta HMP1                ; restore no-motion
 
-	; pick player sprite (blank unless this is the player's band)
+	; pick player sprite (blank unless this is the player's band); on the player
+	; band, select the current run-cycle frame (both frames share a page).
 	lda bandCount
 	cmp playerBandCount
 	bne .blankSpr
-	SET_POINTER sprPtr, PlayerSprite
+	ldx animFrame
+	lda PlayerFrameLo,x
+	sta sprPtr
+	lda #>PlayerSprite0
+	sta sprPtr+1
 	jmp .selEnt
 .blankSpr
 	SET_POINTER sprPtr, ZeroSprite
@@ -417,6 +432,7 @@ BandLoop
 	bne .gsAfter            ; just died this frame -> skip further updates
 	jsr ReadInput
 	jsr UpdateWorld
+	jsr AnimatePlayer       ; advance the run cycle (frozen while game over)
 	jmp .gsAfter
 .gsFrozen
 	jsr CheckRestart        ; world frozen; fresh fire press restarts
@@ -549,6 +565,30 @@ ReadInput
 	dec playerFloor         ; jump up one tier
 .store
 	stx btnPrev
+	rts
+
+;-------------------------------------------------------------
+; AnimatePlayer - tick the run-cycle frame. Swaps frame every animTimer
+;   frames; the interval shortens with scroll speed so the player's legs
+;   move faster as the world speeds up.
+;   interval = ANIM_BASE - (scrollSpeed >> 3)
+;-------------------------------------------------------------
+AnimatePlayer
+	dec animTimer
+	bne .apDone
+	lda animFrame
+	eor #1
+	sta animFrame           ; toggle 0 <-> 1
+	lda scrollSpeed
+	lsr
+	lsr
+	lsr                     ; scrollSpeed >> 3
+	sta animTimer           ; (temp)
+	lda #ANIM_BASE
+	sec
+	sbc animTimer
+	sta animTimer           ; reload shortened interval
+.apDone
 	rts
 
 ;-------------------------------------------------------------
@@ -857,8 +897,19 @@ MultTab
 DelayTab
 	.byte 1,2,3,4,5,6,7,8,9,10,0
 
-; Player sprite (stored bottom row first; index 7 = top row)
-PlayerSprite
+; Player run-cycle frames (bottom row first; index 7 = top row). Both frames
+; live in the same page so the kernel selects one by low byte via PlayerFrameLo.
+; PlayerSprite1 starts as a copy of frame 0 -- edit it to make the second pose.
+PlayerSprite0
+	.byte %00000000         ; offset 0 (bottom)
+	.byte %00000000         ;  
+	.byte %11001100         ; ll  ll
+	.byte %11111100         ; llllll
+	.byte %11010100         ; ll l l
+	.byte %11010100         ; ll l l
+	.byte %11111100         ; llllll  
+	.byte %00000000			; (offset 7, top)
+PlayerSprite1
 	.byte %00000000         ; offset 0 (bottom)
 	.byte %00000000
 	.byte %01001000         ;  l  l
@@ -867,6 +918,9 @@ PlayerSprite
 	.byte %11010100         ; ll l l
 	.byte %11010100         ; ll l l
 	.byte %11111100         ; llllll  (offset 7, top)
+; low-byte lookup for the two frames (indexed by animFrame)
+PlayerFrameLo
+	.byte <PlayerSprite0, <PlayerSprite1
 
 ZeroSprite
 	.byte 0,0,0,0,0,0,0,0
@@ -877,10 +931,10 @@ ZeroSprite
 ConeSprite
 	.byte %00000000
 	.byte %00000000
-	.byte %01111110         ; wide base
+	.byte %11111111         ; wide base
+	.byte %01000010
 	.byte %01111110
-	.byte %00111100
-	.byte %00111100
+	.byte %00100100
 	.byte %00011000
 	.byte %00011000         ; point (top)
 
@@ -888,12 +942,12 @@ ConeSprite
 SkullSprite
 	.byte %00000000
 	.byte %00000000
-	.byte %00011000
 	.byte %00111100
-	.byte %00100100         ; eyes
-	.byte %00111100
-	.byte %00111100
-	.byte %00011000         ; top
+	.byte %01111110
+	.byte %11100111         ; eyes
+	.byte %10111101
+	.byte %01111110
+	.byte %00111100         ; top
 
 ; Entity lookups indexed by entType (0 none, 1 cone, 2 skull)
 EntColorTable
