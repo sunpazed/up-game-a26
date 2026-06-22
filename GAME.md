@@ -135,11 +135,12 @@ Proposed layout (refine during implementation):
 - ✅ GAME OVER: alternates "GAMEOVER" text and "HInnnn" (high score), 120 frames each.
 - ✅ HI-score tracked (max on death), persists across restarts via a soft-reset (NewGame).
 
-### M6 — Spawn spacing + score-based speed-up  ⬜ NEXT
-- (a) **Better object randomisation.** Today entities respawn the instant they wrap, so a fresh
-  one can reappear almost immediately. Add a randomised off-screen delay between an entity
-  leaving and the next entering (per floor), so spacing varies and they don't pop back in at
-  once. (Tune the LFSR usage / add a per-floor respawn countdown.)
+### M6 — Spawn spacing + score-based speed-up  🟡 (a) spacing DONE, (b) speed-up next
+- (a) ✅ **Respawn spacing.** Entities now run a per-floor state machine: visible → scroll to the
+  left edge → **hide** (`entType=0`) and arm `entDelay[floor] = ENT_DELAY_MIN + (rng & MASK)`
+  (32-159 frames) → re-enter from the right with a random type when the delay elapses. The same
+  delay is armed when a cone is *collected* (in `CheckCollision`). So entities are spaced out and
+  desync (random delays + staggered start). `SetRespawnDelay` arms the timer. RAM: `entDelay[6]`.
 - (b) **Speed up with score, at sub-pixel resolution.** Scroll speed should increase as the
   score climbs, in **fractional pixels** for smoothness, kept performant with **shifts** (no
   multiply/divide). Plan: a fixed-point scroll accumulator per object (e.g. 8.8 — integer +

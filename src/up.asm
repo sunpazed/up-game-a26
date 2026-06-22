@@ -63,6 +63,8 @@ ENT_WRAP     = 152      ; respawn x. Kept <=152 so the 8px GRP1 object never
                         ; reaches the wrap zone (153-159): an object there would
                         ; mod-160 wrap part of the sprite to the LEFT edge,
                         ; flashing the freshly-rerolled type at pixel 0.
+ENT_DELAY_MIN  = 32     ; off-screen wait before an entity re-enters:
+ENT_DELAY_MASK = $7f    ;   ENT_DELAY_MIN + (rng & MASK) = 32..159 frames
 
 COL_GAMEOVER = $42      ; red background tint while game over
 
@@ -90,8 +92,9 @@ posJmp          ds 2    ; indirect pointer into the missile strobe table
 gapX            ds 6    ; per-floor gap x position (floor 5 unused/no gap)
 gapQuick        ds 6    ; per-floor precomputed quickPos (HMM0 fine | delay count)
 posJmpLo        ds 6    ; per-floor precomputed strobe-table entry (low byte)
-entType         ds 6    ; per-floor entity: 0 none, 1 cone, 2 skull
+entType         ds 6    ; per-floor entity: 0 none/hidden, 1 cone, 2 skull
 entX            ds 6    ; per-floor entity x position
+entDelay        ds 6    ; per-floor frames left to wait off-screen before respawn
 entQuick        ds 6    ; per-floor precomputed quickPos for the entity (GRP1)
 entJmpLo        ds 6    ; per-floor precomputed strobe-table entry (low byte)
 entPtr          ds 2    ; pointer to the current band's entity sprite
@@ -543,17 +546,27 @@ UpdateWorld
 	bcc .noFall             ; gap is left of the player
 	inc playerFloor         ; fall down one tier
 .noFall
-	; advance the PRNG once per frame so respawn types stay varied
+	; advance the PRNG once per frame so respawns stay varied
 	jsr Rng
-	; scroll entities exactly like the gaps: dec to the left edge, then
-	; wrap to the right with a fresh random type. The sprites have a blank
-	; leftmost column (bit 7 = 0), so at entX=ENT_WRAP (the wrap target)
-	; nothing is drawn at pixel 159 -- the new type stays invisible until
-	; the entity scrolls in from the right, so the type change isn't seen.
+	; entities: scroll left to the edge, then HIDE for a randomised delay
+	; before re-entering from the right with a random type. The off-screen
+	; wait spaces them out so they don't pop straight back in.
 	ldx #5
 .entScroll
+	lda entType,x
+	beq .entWaiting         ; type 0 = hidden, waiting to respawn
+	; visible: scroll toward the left edge
 	dec entX,x
 	bne .entNext
+	; reached the edge -> hide and arm a random respawn delay
+	lda #0
+	sta entType,x
+	jsr SetRespawnDelay
+	jmp .entNext
+.entWaiting
+	dec entDelay,x
+	bne .entNext
+	; delay elapsed -> respawn at the right with a random type
 	jsr Rng
 	and #3
 	tay
@@ -564,6 +577,17 @@ UpdateWorld
 .entNext
 	dex
 	bpl .entScroll
+	rts
+
+;-------------------------------------------------------------
+; SetRespawnDelay - arm entDelay[X] with a randomised off-screen wait.
+;-------------------------------------------------------------
+SetRespawnDelay
+	jsr Rng
+	and #ENT_DELAY_MASK
+	clc
+	adc #ENT_DELAY_MIN
+	sta entDelay,x
 	rts
 
 ;-------------------------------------------------------------
@@ -597,7 +621,8 @@ CheckCollision
 	sta scoreBCD+2
 	cld
 	lda #0
-	sta entType,x           ; cone consumed (respawns on its next wrap)
+	sta entType,x           ; cone consumed
+	jsr SetRespawnDelay     ; wait before a new entity enters this floor
 	rts
 .ccSkull
 	lda #1
@@ -818,7 +843,7 @@ EntTypeRoll
 ;   entry's `sta RESM0`, so only the jumped-to strobe executes, then
 ;   execution falls through to `sta HMOVE` at cycle ~74.
 ;-------------------------------------------------------------
-	org $f400
+	org $f500
 PosTblM0
 pM0_3
 	sta RESM0
@@ -861,11 +886,11 @@ JumpTabM0
 	.byte <pM0_90, <pM0_105, <pM0_120, <pM0_135, <pM0_150
 
 ;-------------------------------------------------------------
-; Player-1 (GRP1) cycle-74 strobe table. Placed at $f500 so its
-; entries share the SAME low bytes as PosTblM0 ($f400) -> JumpTabM0
-; works for both; Pos74P1 just uses the $f5 high byte.
+; Player-1 (GRP1) cycle-74 strobe table. Placed at $f600 so its
+; entries share the SAME low bytes as PosTblM0 ($f500) -> JumpTabM0
+; works for both; Pos74P1 just uses the $f6 high byte.
 ;-------------------------------------------------------------
-	org $f500
+	org $f600
 PosTblP1
 pP1_3
 	sta RESP1
