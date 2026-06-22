@@ -161,7 +161,9 @@ Proposed layout (refine during implementation):
 - Verify: entities are spaced out (no instant re-pop); scroll visibly accelerates as score rises,
   still smooth (no judder), no roll.
 
-### M6(c) — Entities must spawn clear of gaps  ⬜ NEXT (designed, not yet coded)
+### M6(c) — Entities must spawn clear of gaps  ✅ IMPLEMENTED (pending emu check)
+Implemented as below: in `.entWaiting`, before respawning, `lda gapX,x / cmp #GAP_SPAWN_CLEAR
+(145) / bcc .doSpawn`; otherwise re-arm `entDelay = ENT_DEFER (16)` and recheck. No new RAM.
 **Symptom:** cones/skulls sometimes appear floating over a hole.
 **Cause:** on each floor the gap (`gapX[f]`) and the entity (`entX[f]`) scroll at the **same
 speed** (both by `scrollStep`), so their relative x is fixed for a whole pass. If an entity

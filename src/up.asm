@@ -65,6 +65,8 @@ ENT_WRAP     = 152      ; respawn x. Kept <=152 so the 8px GRP1 object never
                         ; flashing the freshly-rerolled type at pixel 0.
 ENT_DELAY_MIN  = 32     ; off-screen wait before an entity re-enters:
 ENT_DELAY_MASK = $7f    ;   ENT_DELAY_MIN + (rng & MASK) = 32..159 frames
+GAP_SPAWN_CLEAR = 145   ; don't spawn an entity while this floor's gap is >= here
+ENT_DEFER      = 16     ;   (it would overlap the spawn x); recheck after this many frames
 
 ; Scroll speed in 1/32-px fixed point. Per-frame step = (scrollFrac + scrollSpeed)
 ; >> 5 whole pixels; the low 5 bits carry as the fraction. Keep SPEED_MAX <= 224
@@ -582,7 +584,17 @@ UpdateWorld
 .entWaiting
 	dec entDelay,x
 	bne .entNext
-	jsr Rng                 ; delay elapsed -> respawn with a random type
+	; delay elapsed -> respawn, but not over this floor's gap. If the gap
+	; is in the spawn zone, wait a little and recheck (they scroll at the
+	; same speed, so clearing them at spawn keeps them apart all pass).
+	lda gapX,x
+	cmp #GAP_SPAWN_CLEAR
+	bcc .doSpawn
+	lda #ENT_DEFER
+	sta entDelay,x
+	jmp .entNext
+.doSpawn
+	jsr Rng
 	and #3
 	tay
 	lda EntTypeRoll,y
