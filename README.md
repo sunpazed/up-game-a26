@@ -15,7 +15,7 @@ This project is a DASM Atari 2600 port of the JavaScript game `UP 1 WAY`
 - **M2 — Player sprite + jump-up lane movement**: ✅ done, verified in Stella.
 - **M3 — Scrolling gaps (Missile 0) + fall-through**: ✅ done, verified in Stella
   (edge-to-edge cycle-74 positioning, no comb, stable player).
-- M4 — Entities (cones/skulls) + collision: pending.
+- **M4 — Entities (cones/skulls)**: 🟡 rendering + random placement done, verified; collision next.
 - M5 — HUD (6-digit score) + power-up + game-over/reset: pending.
 
 ## Kernel Architecture

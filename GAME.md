@@ -123,11 +123,11 @@ Proposed layout (refine during implementation):
 - `PLAYER_X = 10` (final). Fall window `[FALL_LO=12 .. FALL_HI=20]` — see note below if the
   drop timing wants centring on the new player x.
 
-### M4 — Entities (cones + skulls) + collision
-- GRP1 per band as cone or skull, scrolling right-to-left, spawning at right edge.
-- Collision (player vs GRP1) via position compare in VBLANK/overscan:
-  cone → score++, skull → game over.
-- Verify: cone contact increments score; skull contact triggers game-over state.
+### M4 — Entities (cones + skulls)  🟡 rendering DONE (verified), collision next
+- ✅ GRP1 per band as cone (gold) or skull (red), one per platform, randomly placed,
+  scrolling right-to-left and respawning with a random type. Verified clean in Stella
+  (no wrap ghost / type flash after the mod-160 `ENT_WRAP=152` fix).
+- ⬜ Collision (player vs GRP1): cone → score++, skull → game over. (next sub-step)
 
 ### M5 — HUD, power-up, game-over/reset
 - **6-digit BCD score** in the dedicated top HUD region, 48-px digit path
@@ -345,6 +345,52 @@ left (strobe during HBLANK) — and hides the HMOVE comb in the next line's HBLA
 exact cycle-74 calibration (9-cycle pad, strobe table) follows the reference and may need a
 1–2 cycle tuning pass confirmed in Stella.
 
+### M4 — Entities: cones + skulls (rendering / placement)
+
+**Per-platform entity in GRP1.** Each floor has one entity: `entType[6]` (0 none / 1 cone /
+2 skull) and `entX[6]` (x, scrolls right-to-left). The kernel draws GRP1 in the same 8-line
+sprite window as the player (`lda (entPtr),y / sta GRP1` after the GRP0 write — GRP1 lands in
+HBLANK so even x≈0 is fine). Per band the kernel selects the sprite and colour from `entType`:
+`entPtr` ← `EntSprLo[type]` (Cone/Skull/Zero, all in one page), `COLUP1` ← `EntColorTable[type]`
+(`COL_CONE=$1E` gold, `COL_SKULL=$44` red).
+
+**Second cycle-74 positioner (`Pos74P1`, RESP1).** The entity is positioned exactly like the gap
+but strobing `RESP1`/`HMP1` via `PosTblP1`. `PosTblP1` is page-aligned at `$f400` with the same
+internal layout as `PosTblM0` at `$f300`, so the single `JumpTabM0` low-byte table serves both
+(only the high byte differs). `entQuick[6]`/`entJmpLo[6]` are precomputed in overscan alongside
+the gap values.
+
+**HMxx no-motion discipline.** The band now does *two* cycle-74 HMOVEs (gap, then entity), and
+each HMOVE re-applies every object's HMxx. So all motion registers default to `$80` (NO_MO_74),
+and each positioner sets only its own HMxx to the fine value before its HMOVE, then **restores
+`$80`** after. This keeps the player, the gap, and the entity from disturbing one another.
+
+**Random placement.** An 8-bit LFSR (`Rng`, advanced once per frame) drives respawns; initial
+types/positions are staggered. Entities scroll exactly like the gaps: `dec entX` to the left
+edge, then wrap to `ENT_WRAP=159` with a fresh type from `EntTypeRoll[rng & 3]` =
+{cone, cone, skull, skull}.
+
+**Type-change flicker — root cause and fix.** GRP1 is an **8px-wide** object and the TIA position
+counter is **mod-160**. An object positioned at `entX=153..159` draws pixels that exceed 159 and
+**wrap to the left edge (pixels 0-6)** — so the freshly-rerolled type appeared as a ghost at the
+left. (The gaps wrap identically, but a *background-coloured* missile wrapping to the left is
+invisible — which is the whole reason the gaps looked clean and the coloured entities didn't.)
+**Fix:** cap `ENT_WRAP=152` so the full 8px object always stays on-screen (152-159) and never
+wraps. The entity now appears at the right edge and scrolls cleanly to the left — no wrapped
+ghost, no type flash. Trade-off: it *appears* at the right edge rather than sliding in column by
+column (a gradual slide-in past pixel 159 would require per-column sprite masking). Earlier
+attempts (defer the re-roll a frame; off-screen hide/delay state machine; blank bit 7) were
+reverted — they didn't address the mod-160 wrap, which was the actual cause.
+
+**Band layout (still 30):** `setbg 1 + missile pos 2 + entity pos 2 + pad 9 + sprite 8 +
+green 4 + grey 4`. The end-of-band loop uses `jmp BandLoop` (the body now exceeds a branch's
+±128-byte range).
+
+**RAM added:** `entType[6]`, `entX[6]`, `entQuick[6]`, `entJmpLo[6]`, `entPtr[2]`, `rng`.
+
+**Not yet done:** collision (cone → +score, skull → game over). That + the HUD/score is the
+next step (into M5).
+
 ## 9. Steering Log (user-directed decisions)
 
 This project is being built collaboratively; the user (an experienced 2600/asm developer) has
@@ -373,5 +419,10 @@ materially steered the implementation. Recording the key interventions:
 - **Diagnosed the player-vs-gap pixel mismatch** (player dropping through holes before reaching
   them) as a fine-position alignment issue → fixed `PosStd`'s calibration. Set `PLAYER_X = 10`
   as the final player position.
+- **Diagnosed the entity "type flash" as the mod-160 sprite wrap** — spotted that an 8px GRP1
+  object near the right edge wraps part of itself to the left edge, and that the gaps avoid it
+  only by being background-coloured. This pinned down the real cause after several near-misses,
+  leading to the `ENT_WRAP=152` fix. Proposed sprite-masking as the alternative (kept in reserve
+  for gradual slide-in).
 - **Process: keep the `.md` docs updated between milestones**, with detailed implementation
   writeups — and maintain this steering log.

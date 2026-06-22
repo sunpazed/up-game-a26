@@ -43,8 +43,8 @@ PLAYER_X     = 10       ; fixed horizontal position of the player
 
 HUD_LINES    = 12
 NUM_BANDS    = 6
-BAND_PAD     = 11       ; air pad rows. band = setbg 1 + pos 2 (strobe + realign)
-                        ;            + pad 11 + sprite 8 + green 4 + grey 4 = 30
+BAND_PAD     = 9        ; air pad rows. band = setbg 1 + missile pos 2 + entity
+                        ;   pos 2 + pad 9 + sprite 8 + green 4 + grey 4 = 30
 SPRITE_H     = 8
 BAND_GREEN   = 4
 BAND_GREY    = 4
@@ -53,6 +53,16 @@ GAP_WIDTH    = 8        ; missile gap width (NUSIZ0 = $30)
 GAP_WRAP     = 159      ; respawn x at the right edge (cycle-74 reaches 0..159)
 FALL_LO      = 12       ; gap-under-player window [FALL_LO..FALL_HI]
 FALL_HI      = 20
+
+; entities (GRP1): one per platform, scroll right-to-left
+ENT_CONE     = 1        ; gold collectible (+1 score)
+ENT_SKULL    = 2        ; red hazard
+COL_CONE     = $1E      ; gold / yellow
+COL_SKULL    = $44      ; red
+ENT_WRAP     = 152      ; respawn x. Kept <=152 so the 8px GRP1 object never
+                        ; reaches the wrap zone (153-159): an object there would
+                        ; mod-160 wrap part of the sprite to the LEFT edge,
+                        ; flashing the freshly-rerolled type at pixel 0.
 
 ;-------------------------------------------------------------
 ; RAM
@@ -72,6 +82,12 @@ posJmp          ds 2    ; indirect pointer into the missile strobe table
 gapX            ds 6    ; per-floor gap x position (floor 5 unused/no gap)
 gapQuick        ds 6    ; per-floor precomputed quickPos (HMM0 fine | delay count)
 posJmpLo        ds 6    ; per-floor precomputed strobe-table entry (low byte)
+entType         ds 6    ; per-floor entity: 0 none, 1 cone, 2 skull
+entX            ds 6    ; per-floor entity x position
+entQuick        ds 6    ; per-floor precomputed quickPos for the entity (GRP1)
+entJmpLo        ds 6    ; per-floor precomputed strobe-table entry (low byte)
+entPtr          ds 2    ; pointer to the current band's entity sprite
+rng             ds 1    ; PRNG state (LFSR)
 
 ;-------------------------------------------------------------
 ; ROM
@@ -118,17 +134,49 @@ Reset
 	lda #0
 	sta gapX+5
 
+	; Entities: staggered positions and initial types (one per platform)
+	lda #1
+	sta rng                 ; PRNG seed (must be non-zero)
+	lda #ENT_CONE
+	sta entType+0
+	lda #ENT_SKULL
+	sta entType+1
+	lda #ENT_CONE
+	sta entType+2
+	lda #ENT_CONE
+	sta entType+3
+	lda #ENT_SKULL
+	sta entType+4
+	lda #ENT_CONE
+	sta entType+5
+	lda #150
+	sta entX+0
+	lda #95
+	sta entX+1
+	lda #125
+	sta entX+2
+	lda #65
+	sta entX+3
+	lda #35
+	sta entX+4
+	lda #105
+	sta entX+5
+
 	; Clear motion registers, then position the static player once
-	; (off-screen, plain divide-by-15). Afterwards set HMP0 = $80, the
-	; cycle-74 HMOVE "no motion" value: the per-band cycle-74 HMOVEs
-	; re-apply HMP0 every frame, and $00 there is NOT zero motion (it
-	; would walk the player), whereas $80 (NO_MO_74) holds it still.
+	; (off-screen, plain divide-by-15). Afterwards default every motion
+	; register to $80, the cycle-74 HMOVE "no motion" value: the per-band
+	; cycle-74 HMOVEs re-apply ALL HMxx, and $00 there is NOT zero motion
+	; (it would walk the object); $80 (NO_MO_74) holds non-targeted
+	; objects still. Each positioner sets its own HMxx to the fine value
+	; for its HMOVE, then restores $80.
 	sta HMCLR
 	lda #PLAYER_X
 	ldx #0
 	jsr PosStd
 	lda #$80
 	sta HMP0
+	sta HMM0
+	sta HMP1
 
 ;-------------------------------------------------------------
 ; Main frame loop
@@ -180,32 +228,50 @@ BandLoop
 	sbc bandCount
 	sta curFloor
 	tay
-	jsr Pos74M0
+	jsr Pos74M0             ; position the gap missile (cycle-74)
+	lda #$80
+	sta HMM0                ; restore no-motion so the next HMOVE won't move it
+	ldy curFloor
+	jsr Pos74P1             ; position the entity sprite GRP1 (cycle-74)
+	lda #$80
+	sta HMP1                ; restore no-motion
 
-	; pick this band's player sprite (cycles absorbed into the first pad line)
+	; pick player sprite (blank unless this is the player's band)
 	lda bandCount
 	cmp playerBandCount
 	bne .blankSpr
 	SET_POINTER sprPtr, PlayerSprite
-	jmp .pad
+	jmp .selEnt
 .blankSpr
 	SET_POINTER sprPtr, ZeroSprite
-.pad
+.selEnt
+	; entity sprite + colour for this floor's type
+	ldy curFloor
+	ldx entType,y
+	lda EntColorTable,x
+	sta COLUP1
+	lda EntSprLo,x
+	sta entPtr
+	lda #>ZeroSprite
+	sta entPtr+1
+
 	ldx #BAND_PAD
 .padLoop
 	sta WSYNC
 	dex
 	bne .padLoop
 
-	; player sprite window (8 lines, top row first)
+	; sprite window (8 lines): player (GRP0) + entity (GRP1), top row first
 	ldy #SPRITE_H-1
 .sprLoop
 	sta WSYNC
 	lda (sprPtr),y
 	sta GRP0
+	lda (entPtr),y
+	sta GRP1
 	dey
 	bpl .sprLoop
-	; GRP0 is now 0 (sprite offsets 0-1 are blank)
+	; GRP0/GRP1 are now 0 (sprite offsets 0-1 are blank)
 
 	; prepare platform rows: missile = background (so it shows as a gap),
 	; enable the gap if this floor has one (floor 5 has none).
@@ -236,7 +302,9 @@ BandLoop
 	bne .gryLoop
 
 	dec bandCount
-	bne BandLoop
+	beq .bandsDone
+	jmp BandLoop            ; (band body > 128 bytes, so jmp not bne)
+.bandsDone
 
 	; turn the missile off before leaving the visible area
 	lda #0
@@ -257,6 +325,7 @@ BandLoop
 	; so the visible kernel positions in one fixed-time scanline.
 	ldx #5
 .precomp
+	; gap (missile 0)
 	lda gapX,x
 	stx tempFloor
 	jsr CalcQuickPos        ; A = quickPos (clobbers Y, tempOne)
@@ -266,6 +335,16 @@ BandLoop
 	tay
 	lda JumpTabM0,y
 	sta posJmpLo,x
+	; entity (GRP1) - PosTblP1 mirrors PosTblM0, so JumpTabM0 low bytes apply
+	lda entX,x
+	stx tempFloor
+	jsr CalcQuickPos
+	ldx tempFloor
+	sta entQuick,x
+	and #$0F
+	tay
+	lda JumpTabM0,y
+	sta entJmpLo,x
 	dex
 	bpl .precomp
 
@@ -306,6 +385,42 @@ Pos74M0
 	dex
 	bpl .wait74
 	jmp (posJmp)            ; into PosTblM0; strobes RESM0, HMOVE @ ~74, rts
+
+;-------------------------------------------------------------
+; Pos74P1 - position the entity sprite (GRP1) at ent[curFloor].
+;   IN: Y = curFloor. Uses entQuick / entJmpLo. Same technique as
+;   Pos74M0, but strobes RESP1 (PosTblP1) and uses HMP1.
+;-------------------------------------------------------------
+Pos74P1
+	lda entQuick,y
+	sta HMP1
+	and #$0F
+	tax
+	lda entJmpLo,y
+	sta posJmp
+	lda #>PosTblP1
+	sta posJmp+1
+	sta WSYNC
+	nop
+	nop
+	nop
+	.byte $04,$EA
+.wait74p
+	dex
+	bpl .wait74p
+	jmp (posJmp)            ; into PosTblP1; strobes RESP1, HMOVE @ ~74, rts
+
+;-------------------------------------------------------------
+; Rng - 8-bit LFSR. Advances and returns the new value in A.
+;-------------------------------------------------------------
+Rng
+	lda rng
+	lsr
+	bcc .rngNoFb
+	eor #$B4
+.rngNoFb
+	sta rng
+	rts
 
 ;-------------------------------------------------------------
 ; ReadInput - one-button jump-up (rising edge of fire button)
@@ -351,6 +466,27 @@ UpdateWorld
 	bcc .noFall             ; gap is left of the player
 	inc playerFloor         ; fall down one tier
 .noFall
+	; advance the PRNG once per frame so respawn types stay varied
+	jsr Rng
+	; scroll entities exactly like the gaps: dec to the left edge, then
+	; wrap to the right with a fresh random type. The sprites have a blank
+	; leftmost column (bit 7 = 0), so at entX=ENT_WRAP (the wrap target)
+	; nothing is drawn at pixel 159 -- the new type stays invisible until
+	; the entity scrolls in from the right, so the type change isn't seen.
+	ldx #5
+.entScroll
+	dec entX,x
+	bne .entNext
+	jsr Rng
+	and #3
+	tay
+	lda EntTypeRoll,y
+	sta entType,x
+	lda #ENT_WRAP
+	sta entX,x
+.entNext
+	dex
+	bpl .entScroll
 	rts
 
 ;-------------------------------------------------------------
@@ -432,13 +568,46 @@ PlayerSprite
 ZeroSprite
 	.byte 0,0,0,0,0,0,0,0
 
+; Cone (gold) - narrow top widening to a base. Bottom row first.
+; Bit 7 (leftmost column) is always blank so the entity is invisible at
+; the wrap position (entX=159), hiding the respawn type change.
+ConeSprite
+	.byte %00000000
+	.byte %00000000
+	.byte %01111110         ; wide base
+	.byte %01111110
+	.byte %00111100
+	.byte %00111100
+	.byte %00011000
+	.byte %00011000         ; point (top)
+
+; Skull (red) - rounded blob with an eye gap. Bottom row first.
+SkullSprite
+	.byte %00000000
+	.byte %00000000
+	.byte %00011000
+	.byte %00111100
+	.byte %00100100         ; eyes
+	.byte %00111100
+	.byte %00111100
+	.byte %00011000         ; top
+
+; Entity lookups indexed by entType (0 none, 1 cone, 2 skull)
+EntColorTable
+	.byte $00, COL_CONE, COL_SKULL
+EntSprLo
+	.byte <ZeroSprite, <ConeSprite, <SkullSprite
+; Respawn type roll, indexed by (rng & 3): 50/50 cone / skull
+EntTypeRoll
+	.byte ENT_CONE, ENT_CONE, ENT_SKULL, ENT_SKULL
+
 ;-------------------------------------------------------------
 ; Missile-0 cycle-74 strobe table (must stay within one page).
 ;   Each entry strobes RESM0; the $1C (NOP abs) swallows the next
 ;   entry's `sta RESM0`, so only the jumped-to strobe executes, then
 ;   execution falls through to `sta HMOVE` at cycle ~74.
 ;-------------------------------------------------------------
-	org $f200
+	org $f300
 PosTblM0
 pM0_3
 	sta RESM0
@@ -479,6 +648,49 @@ pM0_150
 JumpTabM0
 	.byte <pM0_3, <pM0_15, <pM0_30, <pM0_45, <pM0_60, <pM0_75
 	.byte <pM0_90, <pM0_105, <pM0_120, <pM0_135, <pM0_150
+
+;-------------------------------------------------------------
+; Player-1 (GRP1) cycle-74 strobe table. Placed at $f400 so its
+; entries share the SAME low bytes as PosTblM0 ($f300) -> JumpTabM0
+; works for both; Pos74P1 just uses the $f4 high byte.
+;-------------------------------------------------------------
+	org $f400
+PosTblP1
+pP1_3
+	sta RESP1
+	.byte $1C
+pP1_15
+	sta RESP1
+	.byte $1C
+pP1_30
+	sta RESP1
+	.byte $1C
+pP1_45
+	sta RESP1
+	.byte $1C
+pP1_60
+	sta RESP1
+	.byte $1C
+pP1_75
+	sta RESP1
+	.byte $1C
+pP1_90
+	sta RESP1
+	.byte $1C
+pP1_105
+	sta RESP1
+	.byte $1C
+pP1_120
+	sta RESP1
+	.byte $1C
+pP1_135
+	sta RESP1
+	.byte $1C
+pP1_150
+	sta RESP1
+	sta HMOVE
+	sta WSYNC
+	rts
 
 ;-------------------------------------------------------------
 ; Vectors
