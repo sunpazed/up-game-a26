@@ -1,5 +1,34 @@
 ------- FILE src/up.asm LEVEL 1 PASS 2
-      1  fffe					      processor	6502
+      1  10000 ????						;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+      2  10000 ????						; UP 1 WAY - Atari 2600 port (4K cart)
+      3  10000 ????						;
+      4  10000 ????						; Milestone 3 (+ edge-to-edge positioning rework):
+      5  10000 ????						;   - 6 platform bands (playfield, COLUPF swaps).
+      6  10000 ????						;   - Player (GRP0) drawn on its current floor band (jump-up input).
+      7  10000 ????						;   - Gaps are Missile 0, repositioned per band, coloured the
+      8  10000 ????						;     background so they cut a hole through the platform.
+      9  10000 ????						;   - Player falls one tier when a gap scrolls under it.
+     10  10000 ????						;
+     11  10000 ????						; Horizontal positioning (gaps / enemy) uses the cycle-74 HMOVE
+     12  10000 ????						; technique (after examples/hmove74.asm, by Omegamatrix):
+     13  10000 ????						;   - In overscan a "quickPos" byte is precomputed per object
+     14  10000 ????						;     (= HMOVE fine nibble | jump-table delay count).
+     15  10000 ????						;   - In the kernel the object is positioned in ONE scanline: a
+     16  10000 ????						;     short delay loop + an indirect jump into a RESxx strobe table
+     17  10000 ????						;     that ends with `sta HMOVE` at cycle ~74. The cycle-74 HMOVE
+     18  10000 ????						;     positions cleanly edge-to-edge (incl. x=0, strobe in HBLANK)
+     19  10000 ????						;     and hides the HMOVE "comb" in the next line's HBLANK.
+     20  10000 ????						;   The static player is positioned once at init with the plain
+     21  10000 ????						;   divide-by-15 routine (off-screen, timing not critical).
+     22  10000 ????						;
+     23  10000 ????						; Timing:
+     24  10000 ????						;   VSYNC	3   (VERTICAL_SYNC)
+     25  10000 ????						;   VBLANK    36   (WSYNC loop)
+     26  10000 ????						;   visible  192   (HUD 12 + 6 bands * 30, all WSYNC-exact)
+     27  10000 ????						;   overscan ~30   (TIM64T timer; input + world update + precompute)
+     28  10000 ????						;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+     29  10000 ????
+     30  10000 ????				       processor	6502
 ------- FILE vcs.h LEVEL 2 PASS 2
       0  10000 ????				       include	"vcs.h"
       1  10000 ????						; VCS.H
@@ -199,324 +228,287 @@
     195 U0298							; The following required for back-compatibility with code which does not use
     196 U0298							; segments.
     197 U0298
-    198  10000 ????				       SEG
-    199  10000 ????
-    200  10000 ????						; EOF
-    201  10000 ????
+    198  0000 ????				      SEG
+    199  0000 ????
+    200  0000 ????						; EOF
+    201  0000 ????
 ------- FILE src/up.asm
 ------- FILE macro.h LEVEL 2 PASS 2
-      0  10000 ????				       include	"macro.h"
-      1  10000 ????						; MACRO.H
-      2  10000 ????						; Version 1.06, 3/SEPTEMBER/2004
-      3  10000 ????
-      4  10000 ????		00 6a	    VERSION_MACRO =	106
-      5  10000 ????
-      6  10000 ????						;
-      7  10000 ????						; THIS FILE IS EXPLICITLY SUPPORTED AS A DASM-PREFERRED COMPANION FILE
-      8  10000 ????						; PLEASE DO *NOT* REDISTRIBUTE MODIFIED VERSIONS OF THIS FILE!
-      9  10000 ????						;
-     10  10000 ????						; This file defines DASM macros useful for development for the Atari 2600.
-     11  10000 ????						; It is distributed as a companion machine-specific support package
-     12  10000 ????						; for the DASM compiler. Updates to this file, DASM, and associated tools are
-     13  10000 ????						; available at at http://www.atari2600.org/dasm
-     14  10000 ????						;
-     15  10000 ????						; Many thanks to the people who have contributed.  If you take issue with the
-     16  10000 ????						; contents, or would like to add something, please write to me
-     17  10000 ????						; (atari2600@taswegian.com) with your contribution.
-     18  10000 ????						;
-     19  10000 ????						; Latest Revisions...
-     20  10000 ????						;
-     21  10000 ????						; 1.06  03/SEP/2004	 - nice revision of VERTICAL_BLANK (Edwin Blink)
-     22  10000 ????						; 1.05  14/NOV/2003	 - Added VERSION_MACRO equate (which will reflect 100x version #)
-     23  10000 ????						;			   This will allow conditional code to verify MACRO.H being
-     24  10000 ????						;			   used for code assembly.
-     25  10000 ????						; 1.04  13/NOV/2003	 - SET_POINTER macro added (16-bit address load)
-     26  10000 ????						;
-     27  10000 ????						; 1.03  23/JUN/2003	 - CLEAN_START macro added - clears TIA, RAM, registers
-     28  10000 ????						;
-     29  10000 ????						; 1.02  14/JUN/2003	 - VERTICAL_SYNC macro added
-     30  10000 ????						;			   (standardised macro for vertical synch code)
-     31  10000 ????						; 1.01  22/MAR/2003	 - SLEEP macro added.
-     32  10000 ????						;			 - NO_ILLEGAL_OPCODES switch implemented
-     33  10000 ????						; 1.0	22/MAR/2003		Initial release
-     34  10000 ????
-     35  10000 ????						; Note: These macros use illegal opcodes.  To disable illegal opcode usage,
-     36  10000 ????						;   define the symbol NO_ILLEGAL_OPCODES (-DNO_ILLEGAL_OPCODES=1 on command-line).
-     37  10000 ????						;   If you do not allow illegal opcode usage, you must include this file
-     38  10000 ????						;   *after* including VCS.H (as the non-illegal opcodes access hardware
-     39  10000 ????						;   registers and require them to be defined first).
-     40  10000 ????
-     41  10000 ????						; Available macros...
-     42  10000 ????						;   SLEEP n		 - sleep for n cycles
-     43  10000 ????						;   VERTICAL_SYNC	 - correct 3 scanline vertical synch code
-     44  10000 ????						;   CLEAN_START	 - set machine to known state on startup
-     45  10000 ????						;   SET_POINTER	 - load a 16-bit absolute to a 16-bit variable
-     46  10000 ????
-     47  10000 ????						;-------------------------------------------------------------------------------
-     48  10000 ????						; SLEEP duration
-     49  10000 ????						; Original author: Thomas Jentzsch
-     50  10000 ????						; Inserts code which takes the specified number of cycles to execute.	This is
-     51  10000 ????						; useful for code where precise timing is required.
-     52  10000 ????						; ILLEGAL-OPCODE VERSION DOES NOT AFFECT FLAGS OR REGISTERS.
-     53  10000 ????						; LEGAL OPCODE VERSION MAY AFFECT FLAGS
-     54  10000 ????						; Uses illegal opcode (DASM 2.20.01 onwards).
-     55  10000 ????
-     56  10000 ????				       MAC	sleep
-     57  10000 ????			    .CYCLES    SET	{1}
-     58  10000 ????
-     59  10000 ????				       IF	.CYCLES < 2
-     60  10000 ????				       ECHO	"MACRO ERROR: 'SLEEP': Duration must be > 1"
-     61  10000 ????				       ERR
-     62  10000 ????				       ENDIF
-     63  10000 ????
-     64  10000 ????				       IF	.CYCLES & 1
-     65  10000 ????				       IFNCONST	NO_ILLEGAL_OPCODES
-     66  10000 ????				       nop	0
-     67  10000 ????				       ELSE
-     68  10000 ????				       bit	VSYNC
-     69  10000 ????				       ENDIF
-     70  10000 ????			    .CYCLES    SET	.CYCLES - 3
-     71  10000 ????				       ENDIF
-     72  10000 ????
-     73  10000 ????				       REPEAT	.CYCLES / 2
-     74  10000 ????				       nop
-     75  10000 ????				       REPEND
-     76  10000 ????				       ENDM		;usage: SLEEP n (n>1)
-     77  10000 ????
-     78  10000 ????						;-------------------------------------------------------------------------------
-     79  10000 ????						; VERTICAL_SYNC
-     80  10000 ????						; revised version by Edwin Blink -- saves bytes!
-     81  10000 ????						; Inserts the code required for a proper 3 scanline vertical sync sequence
-     82  10000 ????						; Note: Alters the accumulator
-     83  10000 ????
-     84  10000 ????						; OUT: A = 0
-     85  10000 ????
-     86  10000 ????				       MAC	vertical_sync
-     87  10000 ????				       lda	#%1110	; each '1' bits generate a VSYNC ON line (bits 1..3)
-     88  10000 ????			    .VSLP1     sta	WSYNC	; 1st '0' bit resets Vsync, 2nd '0' bit exit loop
-     89  10000 ????				       sta	VSYNC
-     90  10000 ????				       lsr
-     91  10000 ????				       bne	.VSLP1	; branch until VYSNC has been reset
-     92  10000 ????				       ENDM
-     93  10000 ????
-     94  10000 ????						;-------------------------------------------------------------------------------
-     95  10000 ????						; CLEAN_START
-     96  10000 ????						; Original author: Andrew Davie
-     97  10000 ????						; Standardised start-up code, clears stack, all TIA registers and RAM to 0
-     98  10000 ????						; Sets stack pointer to $FF, and all registers to 0
-     99  10000 ????						; Sets decimal mode off, sets interrupt flag (kind of un-necessary)
-    100  10000 ????						; Use as very first section of code on boot (ie: at reset)
-    101  10000 ????						; Code written to minimise total ROM usage - uses weird 6502 knowledge :)
-    102  10000 ????
-    103  10000 ????				       MAC	clean_start
-    104  10000 ????				       sei
-    105  10000 ????				       cld
-    106  10000 ????
-    107  10000 ????				       ldx	#0
-    108  10000 ????				       txa
-    109  10000 ????				       tay
-    110  10000 ????			    .CLEAR_STACK dex
-    111  10000 ????				       txs
-    112  10000 ????				       pha
-    113  10000 ????				       bne	.CLEAR_STACK	; SP=$FF, X = A = Y = 0
-    114  10000 ????
-    115  10000 ????				       ENDM
-    116  10000 ????
-    117  10000 ????						;-------------------------------------------------------
-    118  10000 ????						; SET_POINTER
-    119  10000 ????						; Original author: Manuel Rotschkar
-    120  10000 ????						;
-    121  10000 ????						; Sets a 2 byte RAM pointer to an absolute address.
-    122  10000 ????						;
-    123  10000 ????						; Usage: SET_POINTER pointer, address
-    124  10000 ????						; Example: SET_POINTER SpritePTR, SpriteData
-    125  10000 ????						;
-    126  10000 ????						; Note: Alters the accumulator, NZ flags
-    127  10000 ????						; IN 1: 2 byte RAM location reserved for pointer
-    128  10000 ????						; IN 2: absolute address
-    129  10000 ????
-    130  10000 ????				       MAC	set_pointer
-    131  10000 ????			    .POINTER   SET	{1}
-    132  10000 ????			    .ADDRESS   SET	{2}
-    133  10000 ????
-    134  10000 ????				       LDA	#<.ADDRESS	; Get Lowbyte of Address
-    135  10000 ????				       STA	.POINTER	; Store in pointer
-    136  10000 ????				       LDA	#>.ADDRESS	; Get Hibyte of Address
-    137  10000 ????				       STA	.POINTER+1	; Store in pointer+1
-    138  10000 ????
-    139  10000 ????				       ENDM
-    140  10000 ????
-    141  10000 ????						;-------------------------------------------------------
-    142  10000 ????						; BOUNDARY byte#
-    143  10000 ????						; Original author: Denis Debro (borrowed from Bob Smith / Thomas)
-    144  10000 ????						;
-    145  10000 ????						; Push data to a certain position inside a page and keep count of how
-    146  10000 ????						; many free bytes the programmer will have.
-    147  10000 ????						;
-    148  10000 ????						; eg: BOUNDARY 5    ; position at byte #5 in page
-    149  10000 ????
-    150  10000 ????			    .FREE_BYTES SET	0
-    151  10000 ????				       MAC	boundary
-    152  10000 ????				       REPEAT	256
-    153  10000 ????				       IF	<. % {1} = 0
-    154  10000 ????				       MEXIT
-    155  10000 ????				       ELSE
-    156  10000 ????			    .FREE_BYTES SET	.FREE_BYTES + 1
-    157  10000 ????				       .byte	$00
-    158  10000 ????				       ENDIF
-    159  10000 ????				       REPEND
-    160  10000 ????				       ENDM
-    161  10000 ????
-    162  10000 ????						;-------------------------------------------------------
-    163  10000 ????						; SKIP_SCANLINES #lines
-    164  10000 ????						;
-    165  10000 ????						; Skip a given # of scanlines.
-    166  10000 ????						; Sets the X register to zero.
-    167  10000 ????
-    168  10000 ????				       MAC	skip_scanlines
-    169  10000 ????			    .LINES     SET	{1}
-    170  10000 ????				       ldx	#.LINES
-    171  10000 ????			    .vblank    sta	WSYNC
-    172  10000 ????				       dex
-    173  10000 ????				       bne	.vblank
-    174  10000 ????				       ENDM
-    175  10000 ????
-    176  10000 ????						; EOF
-    177  10000 ????
+      0  0000 ????				      include	"macro.h"
+      1  0000 ????						; MACRO.H
+      2  0000 ????						; Version 1.06, 3/SEPTEMBER/2004
+      3  0000 ????
+      4  0000 ????	       00 6a	   VERSION_MACRO =	106
+      5  0000 ????
+      6  0000 ????						;
+      7  0000 ????						; THIS FILE IS EXPLICITLY SUPPORTED AS A DASM-PREFERRED COMPANION FILE
+      8  0000 ????						; PLEASE DO *NOT* REDISTRIBUTE MODIFIED VERSIONS OF THIS FILE!
+      9  0000 ????						;
+     10  0000 ????						; This file defines DASM macros useful for development for the Atari 2600.
+     11  0000 ????						; It is distributed as a companion machine-specific support package
+     12  0000 ????						; for the DASM compiler. Updates to this file, DASM, and associated tools are
+     13  0000 ????						; available at at http://www.atari2600.org/dasm
+     14  0000 ????						;
+     15  0000 ????						; Many thanks to the people who have contributed.  If you take issue with the
+     16  0000 ????						; contents, or would like to add something, please write to me
+     17  0000 ????						; (atari2600@taswegian.com) with your contribution.
+     18  0000 ????						;
+     19  0000 ????						; Latest Revisions...
+     20  0000 ????						;
+     21  0000 ????						; 1.06  03/SEP/2004	 - nice revision of VERTICAL_BLANK (Edwin Blink)
+     22  0000 ????						; 1.05  14/NOV/2003	 - Added VERSION_MACRO equate (which will reflect 100x version #)
+     23  0000 ????						;			   This will allow conditional code to verify MACRO.H being
+     24  0000 ????						;			   used for code assembly.
+     25  0000 ????						; 1.04  13/NOV/2003	 - SET_POINTER macro added (16-bit address load)
+     26  0000 ????						;
+     27  0000 ????						; 1.03  23/JUN/2003	 - CLEAN_START macro added - clears TIA, RAM, registers
+     28  0000 ????						;
+     29  0000 ????						; 1.02  14/JUN/2003	 - VERTICAL_SYNC macro added
+     30  0000 ????						;			   (standardised macro for vertical synch code)
+     31  0000 ????						; 1.01  22/MAR/2003	 - SLEEP macro added.
+     32  0000 ????						;			 - NO_ILLEGAL_OPCODES switch implemented
+     33  0000 ????						; 1.0	22/MAR/2003		Initial release
+     34  0000 ????
+     35  0000 ????						; Note: These macros use illegal opcodes.  To disable illegal opcode usage,
+     36  0000 ????						;   define the symbol NO_ILLEGAL_OPCODES (-DNO_ILLEGAL_OPCODES=1 on command-line).
+     37  0000 ????						;   If you do not allow illegal opcode usage, you must include this file
+     38  0000 ????						;   *after* including VCS.H (as the non-illegal opcodes access hardware
+     39  0000 ????						;   registers and require them to be defined first).
+     40  0000 ????
+     41  0000 ????						; Available macros...
+     42  0000 ????						;   SLEEP n		 - sleep for n cycles
+     43  0000 ????						;   VERTICAL_SYNC	 - correct 3 scanline vertical synch code
+     44  0000 ????						;   CLEAN_START	 - set machine to known state on startup
+     45  0000 ????						;   SET_POINTER	 - load a 16-bit absolute to a 16-bit variable
+     46  0000 ????
+     47  0000 ????						;-------------------------------------------------------------------------------
+     48  0000 ????						; SLEEP duration
+     49  0000 ????						; Original author: Thomas Jentzsch
+     50  0000 ????						; Inserts code which takes the specified number of cycles to execute.	This is
+     51  0000 ????						; useful for code where precise timing is required.
+     52  0000 ????						; ILLEGAL-OPCODE VERSION DOES NOT AFFECT FLAGS OR REGISTERS.
+     53  0000 ????						; LEGAL OPCODE VERSION MAY AFFECT FLAGS
+     54  0000 ????						; Uses illegal opcode (DASM 2.20.01 onwards).
+     55  0000 ????
+     56  0000 ????				      MAC	sleep
+     57  0000 ????			   .CYCLES    SET	{1}
+     58  0000 ????
+     59  0000 ????				      IF	.CYCLES < 2
+     60  0000 ????				      ECHO	"MACRO ERROR: 'SLEEP': Duration must be > 1"
+     61  0000 ????				      ERR
+     62  0000 ????				      ENDIF
+     63  0000 ????
+     64  0000 ????				      IF	.CYCLES & 1
+     65  0000 ????				      IFNCONST	NO_ILLEGAL_OPCODES
+     66  0000 ????				      nop	0
+     67  0000 ????				      ELSE
+     68  0000 ????				      bit	VSYNC
+     69  0000 ????				      ENDIF
+     70  0000 ????			   .CYCLES    SET	.CYCLES - 3
+     71  0000 ????				      ENDIF
+     72  0000 ????
+     73  0000 ????				      REPEAT	.CYCLES / 2
+     74  0000 ????				      nop
+     75  0000 ????				      REPEND
+     76  0000 ????				      ENDM		;usage: SLEEP n (n>1)
+     77  0000 ????
+     78  0000 ????						;-------------------------------------------------------------------------------
+     79  0000 ????						; VERTICAL_SYNC
+     80  0000 ????						; revised version by Edwin Blink -- saves bytes!
+     81  0000 ????						; Inserts the code required for a proper 3 scanline vertical sync sequence
+     82  0000 ????						; Note: Alters the accumulator
+     83  0000 ????
+     84  0000 ????						; OUT: A = 0
+     85  0000 ????
+     86  0000 ????				      MAC	vertical_sync
+     87  0000 ????				      lda	#%1110	; each '1' bits generate a VSYNC ON line (bits 1..3)
+     88  0000 ????			   .VSLP1     sta	WSYNC	; 1st '0' bit resets Vsync, 2nd '0' bit exit loop
+     89  0000 ????				      sta	VSYNC
+     90  0000 ????				      lsr
+     91  0000 ????				      bne	.VSLP1	; branch until VYSNC has been reset
+     92  0000 ????				      ENDM
+     93  0000 ????
+     94  0000 ????						;-------------------------------------------------------------------------------
+     95  0000 ????						; CLEAN_START
+     96  0000 ????						; Original author: Andrew Davie
+     97  0000 ????						; Standardised start-up code, clears stack, all TIA registers and RAM to 0
+     98  0000 ????						; Sets stack pointer to $FF, and all registers to 0
+     99  0000 ????						; Sets decimal mode off, sets interrupt flag (kind of un-necessary)
+    100  0000 ????						; Use as very first section of code on boot (ie: at reset)
+    101  0000 ????						; Code written to minimise total ROM usage - uses weird 6502 knowledge :)
+    102  0000 ????
+    103  0000 ????				      MAC	clean_start
+    104  0000 ????				      sei
+    105  0000 ????				      cld
+    106  0000 ????
+    107  0000 ????				      ldx	#0
+    108  0000 ????				      txa
+    109  0000 ????				      tay
+    110  0000 ????			   .CLEAR_STACK dex
+    111  0000 ????				      txs
+    112  0000 ????				      pha
+    113  0000 ????				      bne	.CLEAR_STACK	; SP=$FF, X = A = Y = 0
+    114  0000 ????
+    115  0000 ????				      ENDM
+    116  0000 ????
+    117  0000 ????						;-------------------------------------------------------
+    118  0000 ????						; SET_POINTER
+    119  0000 ????						; Original author: Manuel Rotschkar
+    120  0000 ????						;
+    121  0000 ????						; Sets a 2 byte RAM pointer to an absolute address.
+    122  0000 ????						;
+    123  0000 ????						; Usage: SET_POINTER pointer, address
+    124  0000 ????						; Example: SET_POINTER SpritePTR, SpriteData
+    125  0000 ????						;
+    126  0000 ????						; Note: Alters the accumulator, NZ flags
+    127  0000 ????						; IN 1: 2 byte RAM location reserved for pointer
+    128  0000 ????						; IN 2: absolute address
+    129  0000 ????
+    130  0000 ????				      MAC	set_pointer
+    131  0000 ????			   .POINTER   SET	{1}
+    132  0000 ????			   .ADDRESS   SET	{2}
+    133  0000 ????
+    134  0000 ????				      LDA	#<.ADDRESS	; Get Lowbyte of Address
+    135  0000 ????				      STA	.POINTER	; Store in pointer
+    136  0000 ????				      LDA	#>.ADDRESS	; Get Hibyte of Address
+    137  0000 ????				      STA	.POINTER+1	; Store in pointer+1
+    138  0000 ????
+    139  0000 ????				      ENDM
+    140  0000 ????
+    141  0000 ????						;-------------------------------------------------------
+    142  0000 ????						; BOUNDARY byte#
+    143  0000 ????						; Original author: Denis Debro (borrowed from Bob Smith / Thomas)
+    144  0000 ????						;
+    145  0000 ????						; Push data to a certain position inside a page and keep count of how
+    146  0000 ????						; many free bytes the programmer will have.
+    147  0000 ????						;
+    148  0000 ????						; eg: BOUNDARY 5    ; position at byte #5 in page
+    149  0000 ????
+    150  0000 ????			   .FREE_BYTES SET	0
+    151  0000 ????				      MAC	boundary
+    152  0000 ????				      REPEAT	256
+    153  0000 ????				      IF	<. % {1} = 0
+    154  0000 ????				      MEXIT
+    155  0000 ????				      ELSE
+    156  0000 ????			   .FREE_BYTES SET	.FREE_BYTES + 1
+    157  0000 ????				      .byte	$00
+    158  0000 ????				      ENDIF
+    159  0000 ????				      REPEND
+    160  0000 ????				      ENDM
+    161  0000 ????
+    162  0000 ????						;-------------------------------------------------------
+    163  0000 ????						; SKIP_SCANLINES #lines
+    164  0000 ????						;
+    165  0000 ????						; Skip a given # of scanlines.
+    166  0000 ????						; Sets the X register to zero.
+    167  0000 ????
+    168  0000 ????				      MAC	skip_scanlines
+    169  0000 ????			   .LINES     SET	{1}
+    170  0000 ????				      ldx	#.LINES
+    171  0000 ????			   .vblank    sta	WSYNC
+    172  0000 ????				      dex
+    173  0000 ????				      bne	.vblank
+    174  0000 ????				      ENDM
+    175  0000 ????
+    176  0000 ????						; EOF
+    177  0000 ????
 ------- FILE src/up.asm
-------- FILE xmacro.h LEVEL 2 PASS 2
-      0  10000 ????				       include	"xmacro.h"
-      1  10000 ????
-      2  10000 ????						;-------------------------------------------------------
-      3  10000 ????						; Usage: TIMER_SETUP lines
-      4  10000 ????						; where lines is the number of scanlines to skip (> 2).
-      5  10000 ????						; The timer will be set so that it expires before this number
-      6  10000 ????						; of scanlines. A WSYNC will be done first.
-      7  10000 ????
-      8  10000 ????				       MAC	timer_setup
-      9  10000 ????			    .lines     SET	{1}
-     10  10000 ????			    .cycles    SET	((.lines * 76) - 13)
-     11  10000 ????						; special case for when we have two timer events in a line
-     12  10000 ????						; and our 2nd event straddles the WSYNC boundary
-     13  10000 ????				       if	(.cycles % 64) < 12
-     14  10000 ????				       lda	#(.cycles / 64) - 1
-     15  10000 ????				       sta	WSYNC
-     16  10000 ????				       else
-     17  10000 ????				       lda	#(.cycles / 64)
-     18  10000 ????				       sta	WSYNC
-     19  10000 ????				       endif
-     20  10000 ????				       sta	TIM64T
-     21  10000 ????				       ENDM
-     22  10000 ????
-     23  10000 ????						;-------------------------------------------------------
-     24  10000 ????						; Use with TIMER_SETUP to wait for timer to complete.
-     25  10000 ????						; Performs a WSYNC afterwards.
-     26  10000 ????
-     27  10000 ????				       MAC	timer_wait
-     28  10000 ????			    .waittimer
-     29  10000 ????				       lda	INTIM
-     30  10000 ????				       bne	.waittimer
-     31  10000 ????				       sta	WSYNC
-     32  10000 ????				       ENDM
-     33  10000 ????
-------- FILE src/up.asm
-      5  10000 ????
-      6  10000 ????						; -----------------------------------------------------------------------------
-      7  10000 ????						; UP 1 WAY (Atari 2600, 4K)
-      8  10000 ????						;
-      9  10000 ????						; This file is intentionally documented and organized in readable sections.
-     10  10000 ????						; The code currently implements:
-     11  10000 ????						; - stable frame structure (VSYNC / VBLANK / kernel / overscan)
-     12  10000 ????						; - lane-based player movement (jump up, fall on gap)
-     13  10000 ????						; - scrolling gap model
-     14  10000 ????						; - placeholder cone/skull entities with collision hooks
-     15  10000 ????						; - HUD placeholder strip at top of screen
-     16  10000 ????						;
-     17  10000 ????						; The goal is a clean, extensible baseline that we can iterate on.
-     18  10000 ????						; -----------------------------------------------------------------------------
-     19  10000 ????
-     20  10000 ????						; -----------------------------------------------------------------------------
-     21  10000 ????						; Constants
-     22  10000 ????						; -----------------------------------------------------------------------------
-     23  10000 ????		00 00	    GAME_STATE_PLAY equ	$00
-     24  10000 ????		00 01	    GAME_STATE_OVER equ	$01
-     25  10000 ????
-     26  10000 ????		00 06	    LANE_COUNT equ	6
-     27  10000 ????		00 05	    LANE_LAST  equ	5
-     28  10000 ????
-     29  10000 ????		00 28	    PLAYER_X_RESET equ	40
-     30  10000 ????		00 05	    PLAYER_START_LANE equ	5
-     31  10000 ????		00 24	    PLAYER_GAP_MIN equ	36
-     32  10000 ????		00 2c	    PLAYER_GAP_MAX equ	44
-     33  10000 ????
-     34  10000 ????		00 08	    GAP_X_MIN  equ	8
-     35  10000 ????		00 98	    GAP_X_MAX  equ	152
-     36  10000 ????
-     37  10000 ????		00 b0	    CONE_RESPAWN_X equ	176
-     38  10000 ????		00 c8	    SKULL_RESPAWN_X equ	200
-     39  10000 ????
-     40  10000 ????						; -----------------------------------------------------------------------------
-     41  10000 ????						; RAM map
-     42  10000 ????						; -----------------------------------------------------------------------------
-     43 U00a5 ????				      seg.u	Variables
-     44 U0080					      org	$80
-     45 U0080
-     46 U0080		       00	   FrameCounter ds	1
-     47 U0081		       00	   GameState  ds	1
-     48 U0082		       00	   Random     ds	1
-     49 U0083
-     50 U0083		       00	   JoyPrev    ds	1
-     51 U0084		       00	   JoyNow     ds	1
-     52 U0085		       00	   JumpPressed ds	1
-     53 U0086
-     54 U0086		       00	   PlayerX    ds	1
-     55 U0087		       00	   PlayerY    ds	1
-     56 U0088		       00	   PlayerLane ds	1
-     57 U0089
-     58 U0089		       00	   Scroll     ds	1
-     59 U008a
-     60 U008a		       00	   TierGap0   ds	1
-     61 U008b		       00	   TierGap1   ds	1
-     62 U008c		       00	   TierGap2   ds	1
-     63 U008d		       00	   TierGap3   ds	1
-     64 U008e		       00	   TierGap4   ds	1
-     65 U008f		       00	   TierGap5   ds	1
-     66 U0090
-     67 U0090		       00	   TierDir0   ds	1
-     68 U0091		       00	   TierDir1   ds	1
-     69 U0092		       00	   TierDir2   ds	1
-     70 U0093		       00	   TierDir3   ds	1
-     71 U0094		       00	   TierDir4   ds	1
-     72 U0095		       00	   TierDir5   ds	1
-     73 U0096
-     74 U0096		       00	   ConeX      ds	1
-     75 U0097		       00	   ConeY      ds	1
-     76 U0098		       00	   ConeLane   ds	1
-     77 U0099
-     78 U0099		       00	   SkullX     ds	1
-     79 U009a		       00	   SkullY     ds	1
-     80 U009b		       00	   SkullLane  ds	1
-     81 U009c
-     82 U009c		       00	   ActiveEntityType ds	1	; 0=cone, 1=skull (rendered on P1)
-     83 U009d
-     84 U009d		       00	   ScoreLo    ds	1
-     85 U009e		       00	   ScoreHi    ds	1
-     86 U009f		       00	   HiScoreLo  ds	1
-     87 U00a0		       00	   HiScoreHi  ds	1
-     88 U00a1
-     89 U00a1		       00	   KernelScanline ds	1
-     90 U00a2		       00	   KernelPhase ds	1
-     91 U00a3		       00	   PlayerGfx  ds	1
-     92 U00a4		       00	   Temp       ds	1
-     93 U00a5
-     94 U00a5							; -----------------------------------------------------------------------------
-     95 U00a5							; ROM code
-     96 U00a5							; -----------------------------------------------------------------------------
-     97  10000 ????				       seg
-     98  f000					      org	$f000
-     99  f000
-    100  f000				   Start
-      0  f000					      CLEAN_START
+     33  0000 ????
+     34  0000 ????						;-------------------------------------------------------------
+     35  0000 ????						; Constants
+     36  0000 ????						;-------------------------------------------------------------
+     37  0000 ????	       00 0c	   COL_BG     =	$0C	; light grey background
+     38  0000 ????	       00 c8	   COL_GREEN  =	$C8	; platform top (green)
+     39  0000 ????	       00 06	   COL_GREY   =	$06	; platform underside (dark grey)
+     40  0000 ????	       00 02	   COL_PLAYER =	$02	; player sprite (dark grey)
+     41  0000 ????
+     42  0000 ????	       00 0a	   PLAYER_X   =	10	; fixed horizontal position of the player
+     43  0000 ????
+     44  0000 ????	       00 0c	   HUD_LINES  =	12
+     45  0000 ????	       00 06	   NUM_BANDS  =	6
+     46  0000 ????	       00 09	   BAND_PAD   =	9	; air pad rows. band = setbg 1 + missile pos 2 + entity
+     47  0000 ????						;   pos 2 + pad 9 + sprite 8 + green 4 + grey 4 = 30
+     48  0000 ????	       00 08	   SPRITE_H   =	8
+     49  0000 ????	       00 04	   BAND_GREEN =	4
+     50  0000 ????	       00 04	   BAND_GREY  =	4
+     51  0000 ????
+     52  0000 ????	       00 08	   GAP_WIDTH  =	8	; missile gap width (NUSIZ0 = $30)
+     53  0000 ????	       00 9f	   GAP_WRAP   =	159	; respawn x at the right edge (cycle-74 reaches 0..159)
+     54  0000 ????	       00 0e	   FALL_LO    =	14	; gap-under-player window [FALL_LO..FALL_HI], centred on
+     55  0000 ????	       00 12	   FALL_HI    =	18	;   ~15 (measured: gap fully under the player at gapX~15)
+     56  0000 ????
+     57  0000 ????						; entities (GRP1): one per platform, scroll right-to-left
+     58  0000 ????	       00 01	   ENT_CONE   =	1	; gold collectible (+1 score)
+     59  0000 ????	       00 02	   ENT_SKULL  =	2	; red hazard
+     60  0000 ????	       00 1e	   COL_CONE   =	$1E	; gold / yellow
+     61  0000 ????	       00 44	   COL_SKULL  =	$44	; red
+     62  0000 ????	       00 98	   ENT_WRAP   =	152	; respawn x. Kept <=152 so the 8px GRP1 object never
+     63  0000 ????						; reaches the wrap zone (153-159): an object there would
+     64  0000 ????						; mod-160 wrap part of the sprite to the LEFT edge,
+     65  0000 ????						; flashing the freshly-rerolled type at pixel 0.
+     66  0000 ????	       00 20	   ENT_DELAY_MIN =	32	; off-screen wait before an entity re-enters:
+     67  0000 ????	       00 7f	   ENT_DELAY_MASK =	$7f	;   ENT_DELAY_MIN + (rng & MASK) = 32..159 frames
+     68  0000 ????	       00 91	   GAP_SPAWN_CLEAR =	145	; don't spawn an entity while this floor's gap is >= here
+     69  0000 ????	       00 10	   ENT_DEFER  =	16	;   (it would overlap the spawn x); recheck after this many frames
+     70  0000 ????
+     71  0000 ????						; Scroll speed in 1/32-px fixed point. Per-frame step = (scrollFrac + scrollSpeed)
+     72  0000 ????						; >> 5 whole pixels; the low 5 bits carry as the fraction. Keep SPEED_MAX <= 224
+     73  0000 ????						; so scrollFrac (<=31) + scrollSpeed never overflows 8 bits.
+     74  0000 ????	       00 20	   SPEED_BASE =	32	; base speed (= 1.0 px/frame)
+     75  0000 ????	       00 01	   SPEED_INC  =	1	; per cone (= +0.125 px/frame; ~24 cones to top speed)
+     76  0000 ????	       00 80	   SPEED_MAX  =	128	; cap (= 4.0 px/frame; <= the fall window so falls hold)
+     77  0000 ????
+     78  0000 ????	       00 42	   COL_GAMEOVER =	$42	; red background tint while game over
+     79  0000 ????
+     80  0000 ????						; HUD score (48-pixel 6-digit method, after examples/6-digit-score.asm)
+     81  0000 ????	       00 03	   THREE_COPIES =	%011	; NUSIZ: 3 close copies (P0 + P1 interleaved = 6 digits)
+     82  0000 ????	       00 00	   SCORE_COL  =	$00	; black digits on the grey background
+     83  0000 ????	       00 24	   SCORE_SLEEP =	36	; positions the score block (RESP0/RESP1 timing)
+     84  0000 ????	       00 17	   PLAYER_SLEEP =	23	; re-strobes the player P0 near PLAYER_X after the HUD
+     85  0000 ????
+     86  0000 ????						;-------------------------------------------------------------
+     87  0000 ????						; RAM
+     88  0000 ????						;-------------------------------------------------------------
+     89 U00d5 ????				      SEG.U	vars
+     90 U0080					      org	$80
+     91 U0080
+     92 U0080		       00	   playerFloor ds	1	; 0 = top tier .. 5 = bottom tier
+     93 U0081		       00	   playerBandCount ds	1	; bandCount value at which to draw the player
+     94 U0082		       00	   btnPrev    ds	1	; fire button state last frame (edge detect)
+     95 U0083		       00	   bandCount  ds	1	; bands remaining in the visible kernel
+     96 U0084		       00	   curFloor   ds	1	; floor index of the band being drawn
+     97 U0085		       00	   tempOne    ds	1	; scratch for the fast divide in CalcQuickPos
+     98 U0086		       00	   tempFloor  ds	1	; scratch floor index across CalcQuickPos
+     99 U0087		       00 00	   sprPtr     ds	2	; pointer to current band's sprite data
+    100 U0089		       00 00	   posJmp     ds	2	; indirect pointer into the missile strobe table
+    101 U008b		       00 00 00 00*gapX       ds	6	; per-floor gap x position (floor 5 unused/no gap)
+    102 U0091		       00 00 00 00*gapQuick   ds	6	; per-floor precomputed quickPos (HMM0 fine | delay count)
+    103 U0097		       00 00 00 00*posJmpLo   ds	6	; per-floor precomputed strobe-table entry (low byte)
+    104 U009d		       00 00 00 00*entType    ds	6	; per-floor entity: 0 none/hidden, 1 cone, 2 skull
+    105 U00a3		       00 00 00 00*entX       ds	6	; per-floor entity x position
+    106 U00a9		       00 00 00 00*entDelay   ds	6	; per-floor frames left to wait off-screen before respawn
+    107 U00af		       00	   scrollSpeed ds	1	; fractional scroll speed (ramps with score)
+    108 U00b0		       00	   scrollFrac ds	1	; fixed-point fractional accumulator
+    109 U00b1		       00	   scrollStep ds	1	; whole pixels to scroll this frame
+    110 U00b2		       00 00 00 00*entQuick   ds	6	; per-floor precomputed quickPos for the entity (GRP1)
+    111 U00b8		       00 00 00 00*entJmpLo   ds	6	; per-floor precomputed strobe-table entry (low byte)
+    112 U00be		       00 00	   entPtr     ds	2	; pointer to the current band's entity sprite
+    113 U00c0		       00	   rng	      ds	1	; PRNG state (LFSR)
+    114 U00c1		       00	   gameState  ds	1	; 0 = playing, 1 = game over
+    115 U00c2		       00 00 00    scoreBCD   ds	3	; BCD score (low 4 digits shown)
+    116 U00c5		       00 00	   hiScore    ds	2	; 4-digit BCD high score (persists across games)
+    117 U00c7		       00	   goCnt      ds	1	; game-over text cycle: 0-119 GAMEOVER, 120-239 HInnnn
+    118 U00c8		       00 00 00 00*Digit0     ds	12	; 6 font pointers (Digit0..Digit5) for the score kernel
+    119 U00d4		       00	   loopCnt    ds	1	; scanline counter inside DrawDigits
+    120 U00d5
+    121 U00d5							;-------------------------------------------------------------
+    122 U00d5							; ROM
+    123 U00d5							;-------------------------------------------------------------
+    124  10000 ????				       SEG	code
+    125  f000					      org	$f000
+    126  f000
+    127  f000				   Reset
+      0  f000					      CLEAN_START		; zeros all RAM (hiScore starts at 0)
       1  f000		       78		      sei
       2  f001		       d8		      cld
       3  f002
@@ -528,1027 +520,1167 @@
       9  f008		       48		      pha
      10  f009		       d0 fb		      bne	.CLEAR_STACK
      11  f00b
-    102  f00b		       20 3a f0 	      jsr	InitGame
-    103  f00e
-    104  f00e							; Main frame loop.
-    105  f00e							; The high-level flow is kept explicit and easy to audit.
-    106  f00e				   NextFrame
-      0  f00e					      VERTICAL_SYNC
-      1  f00e		       a9 0e		      lda	#%1110
-      2  f010		       85 02	   .VSLP1     sta	WSYNC
-      3  f012		       85 00		      sta	VSYNC
-      4  f014		       4a		      lsr
-      5  f015		       d0 f9		      bne	.VSLP1
-    108  f017
-    109  f017		       a9 02		      lda	#2
-    110  f019		       85 01		      sta	VBLANK
-    111  f01b
-    112  f01b							; 36 scanlines of VBLANK. The VERTICAL_SYNC macro consumes 4 WSYNCs
-    113  f01b							; total (3 VSYNC-on lines plus the line that turns VSYNC off), so this
-    114  f01b							; keeps the full frame at 262 NTSC scanlines: 4 + 36 + 192 + 30.
-      0  f01b					      SKIP_SCANLINES	36
-      1  f01b				   .LINES     SET	36
-      2  f01b		       a2 24		      ldx	#.LINES
-      3  f01d		       85 02	   .vblank    sta	WSYNC
-      4  f01f		       ca		      dex
-      5  f020		       d0 fb		      bne	.vblank
-    116  f022
-    117  f022		       a9 00		      lda	#0
-    118  f024		       85 01		      sta	VBLANK
-    119  f026
-    120  f026							; 192 visible scanlines.
-    121  f026		       20 13 f2 	      jsr	DrawKernel
-    122  f029
-    123  f029							; Overscan with timed housekeeping.
-    124  f029		       a9 02		      lda	#2
-    125  f02b		       85 01		      sta	VBLANK
-    126  f02d							; Debug baseline: keep overscan purely scanline-budgeted. Gameplay update
-    127  f02d							; routines run for variable CPU time, so leave them disabled until the kernel
-    128  f02d							; is stable and then reintroduce them inside a timer-budgeted block.
-    129  f02d							; PositionObjects calls SetHorizPos five times. SetHorizPos burns two WSYNCs
-    130  f02d							; per object, so this consumes 10 overscan scanlines.
-    131  f02d		       20 ef f1 	      jsr	PositionObjects
-    132  f030							; Complete the 30-line overscan budget: 10 positioning + 20 idle.
-      0  f030					      SKIP_SCANLINES	20
-      1  f030				   .LINES     SET	20
-      2  f030		       a2 14		      ldx	#.LINES
-      3  f032		       85 02	   .vblank    sta	WSYNC
-      4  f034		       ca		      dex
-      5  f035		       d0 fb		      bne	.vblank
-    134  f037
-    135  f037		       4c 0e f0 	      jmp	NextFrame
-    136  f03a
-    137  f03a							; -----------------------------------------------------------------------------
-    138  f03a							; Initialization
-    139  f03a							; -----------------------------------------------------------------------------
-    140  f03a
-    141  f03a							; InitGame: full boot init (includes high score reset).
-    142  f03a				   InitGame
-    143  f03a		       a9 00		      lda	#0
-    144  f03c		       85 9f		      sta	HiScoreLo
-    145  f03e		       85 a0		      sta	HiScoreHi
-    146  f040		       20 44 f0 	      jsr	InitRound
-    147  f043		       60		      rts
-    148  f044
-    149  f044							; InitRound: per-round reset (preserves high score).
-    150  f044				   InitRound
-    151  f044		       a9 00		      lda	#GAME_STATE_PLAY
-    152  f046		       85 81		      sta	GameState
-    153  f048
-    154  f048		       a9 a5		      lda	#$A5
-    155  f04a		       85 82		      sta	Random
-    156  f04c
-    157  f04c		       a9 00		      lda	#0
-    158  f04e		       85 80		      sta	FrameCounter
-    159  f050		       85 83		      sta	JoyPrev
-    160  f052		       85 84		      sta	JoyNow
-    161  f054		       85 85		      sta	JumpPressed
-    162  f056		       85 89		      sta	Scroll
-    163  f058		       85 9d		      sta	ScoreLo
-    164  f05a		       85 9e		      sta	ScoreHi
-    165  f05c
-    166  f05c		       a9 28		      lda	#PLAYER_X_RESET
-    167  f05e		       85 86		      sta	PlayerX
-    168  f060		       a9 05		      lda	#PLAYER_START_LANE
-    169  f062		       85 88		      sta	PlayerLane
-    170  f064		       20 d7 f1 	      jsr	SyncPlayerY
-    171  f067
-    172  f067							; Initial gap offsets per lane. These are intentionally staggered.
-    173  f067		       a9 04		      lda	#4
-    174  f069		       85 8a		      sta	TierGap0
-    175  f06b		       a9 07		      lda	#7
-    176  f06d		       85 8b		      sta	TierGap1
-    177  f06f		       a9 0a		      lda	#10
-    178  f071		       85 8c		      sta	TierGap2
-    179  f073		       a9 0d		      lda	#13
-    180  f075		       85 8d		      sta	TierGap3
-    181  f077		       a9 10		      lda	#16
-    182  f079		       85 8e		      sta	TierGap4
-    183  f07b		       a9 13		      lda	#19
-    184  f07d		       85 8f		      sta	TierGap5
-    185  f07f
-    186  f07f							; Direction per lane: 0=left, 1=right.
-    187  f07f		       a9 01		      lda	#1
-    188  f081		       85 90		      sta	TierDir0
-    189  f083		       a9 00		      lda	#0
-    190  f085		       85 91		      sta	TierDir1
-    191  f087		       a9 01		      lda	#1
-    192  f089		       85 92		      sta	TierDir2
-    193  f08b		       a9 00		      lda	#0
-    194  f08d		       85 93		      sta	TierDir3
-    195  f08f		       a9 01		      lda	#1
-    196  f091		       85 94		      sta	TierDir4
-    197  f093		       a9 00		      lda	#0
-    198  f095		       85 95		      sta	TierDir5
-    199  f097
-    200  f097							; Initial entities and their lanes.
-    201  f097		       a9 00		      lda	#0
-    202  f099		       85 9c		      sta	ActiveEntityType
-    203  f09b		       20 af f1 	      jsr	RespawnCone
-    204  f09e		       20 c5 f1 	      jsr	RespawnSkull
-    205  f0a1		       60		      rts
-    206  f0a2
-    207  f0a2							; -----------------------------------------------------------------------------
-    208  f0a2							; Input and world updates
-    209  f0a2							; -----------------------------------------------------------------------------
-    210  f0a2
-    211  f0a2							; ReadInput: edge-detect trigger button into JumpPressed.
-    212  f0a2							; INPT4 bit7: 0=pressed, 1=released.
-    213  f0a2				   ReadInput
-    214  f0a2		       a5 0c		      lda	INPT4
-    215  f0a4		       29 80		      and	#$80
-    216  f0a6		       85 84		      sta	JoyNow
-    217  f0a8
-    218  f0a8		       a9 00		      lda	#0
-    219  f0aa		       85 85		      sta	JumpPressed
-    220  f0ac
-    221  f0ac		       a5 83		      lda	JoyPrev
-    222  f0ae		       f0 08		      beq	ReadInput_PrevWasPressed
-    223  f0b0		       a5 84		      lda	JoyNow
-    224  f0b2		       d0 04		      bne	ReadInput_StoreCurrent
-    225  f0b4		       a9 01		      lda	#1
-    226  f0b6		       85 85		      sta	JumpPressed
-    227  f0b8
-    228  f0b8				   ReadInput_PrevWasPressed
-    229  f0b8				   ReadInput_StoreCurrent
-    230  f0b8		       a5 84		      lda	JoyNow
-    231  f0ba		       85 83		      sta	JoyPrev
-    232  f0bc		       60		      rts
-    233  f0bd
-    234  f0bd							; UpdateWorld: top-level gameplay update dispatch.
-    235  f0bd				   UpdateWorld
-    236  f0bd		       e6 80		      inc	FrameCounter
-    237  f0bf
-    238  f0bf		       a5 81		      lda	GameState
-    239  f0c1		       f0 0a		      beq	UpdateWorld_Playing
-    240  f0c3
-    241  f0c3							; Game-over state: restart on next button press.
-    242  f0c3		       a5 85		      lda	JumpPressed
-    243  f0c5		       f0 0c		      beq	UpdateWorld_Done
-    244  f0c7		       20 44 f0 	      jsr	InitRound
-    245  f0ca		       4c d3 f0 	      jmp	UpdateWorld_Done
-    246  f0cd
-    247  f0cd				   UpdateWorld_Playing
-    248  f0cd		       20 d4 f0 	      jsr	UpdateGaps
-    249  f0d0		       20 fa f0 	      jsr	UpdatePlayerLane
-    250  f0d3							; Milestone focus: missile-driven gap scrolling.
-    251  f0d3							; Entity updates/collisions will be re-enabled in the next gate.
-    252  f0d3
-    253  f0d3				   UpdateWorld_Done
-    254  f0d3		       60		      rts
-    255  f0d4
-    256  f0d4							; UpdateGaps: moves one shared missile gap left/right.
-    257  f0d4				   UpdateGaps
-    258  f0d4		       a5 80		      lda	FrameCounter
-    259  f0d6		       29 01		      and	#$01
-    260  f0d8		       d0 1f		      bne	UpdateGaps_Done
-    261  f0da
-    262  f0da		       a5 90		      lda	TierDir0
-    263  f0dc		       f0 0f		      beq	UpdateGaps_MoveLeft
-    264  f0de
-    265  f0de				   UpdateGaps_MoveRight
-    266  f0de		       e6 8a		      inc	TierGap0
-    267  f0e0		       a5 8a		      lda	TierGap0
-    268  f0e2		       c9 98		      cmp	#GAP_X_MAX
-    269  f0e4		       90 13		      bcc	UpdateGaps_Done
-    270  f0e6		       a9 00		      lda	#0
-    271  f0e8		       85 90		      sta	TierDir0
-    272  f0ea		       4c f9 f0 	      jmp	UpdateGaps_Done
-    273  f0ed
-    274  f0ed				   UpdateGaps_MoveLeft
-    275  f0ed		       c6 8a		      dec	TierGap0
-    276  f0ef		       a5 8a		      lda	TierGap0
-    277  f0f1		       c9 08		      cmp	#GAP_X_MIN
-    278  f0f3		       b0 04		      bcs	UpdateGaps_Done
-    279  f0f5		       a9 01		      lda	#1
-    280  f0f7		       85 90		      sta	TierDir0
-    281  f0f9
-    282  f0f9				   UpdateGaps_Done
-    283  f0f9		       60		      rts
-    284  f0fa
-    285  f0fa							; UpdatePlayerLane: applies jump-up and automatic fall-down behavior.
-    286  f0fa				   UpdatePlayerLane
-    287  f0fa		       a5 85		      lda	JumpPressed
-    288  f0fc		       f0 0a		      beq	UpdatePlayerLane_CheckFall
-    289  f0fe
-    290  f0fe		       a5 88		      lda	PlayerLane
-    291  f100		       f0 06		      beq	UpdatePlayerLane_CheckFall
-    292  f102		       c6 88		      dec	PlayerLane
-    293  f104		       20 d7 f1 	      jsr	SyncPlayerY
-    294  f107		       60		      rts
-    295  f108
-    296  f108				   UpdatePlayerLane_CheckFall
-    297  f108		       a6 88		      ldx	PlayerLane
-    298  f10a		       20 1a f1 	      jsr	CheckHoleForLane
-    299  f10d		       f0 0a		      beq	UpdatePlayerLane_Done
-    300  f10f
-    301  f10f		       e0 05		      cpx	#LANE_LAST
-    302  f111		       f0 06		      beq	UpdatePlayerLane_FallOffBottom
-    303  f113
-    304  f113		       e6 88		      inc	PlayerLane
-    305  f115		       20 d7 f1 	      jsr	SyncPlayerY
-    306  f118		       60		      rts
-    307  f119
-    308  f119				   UpdatePlayerLane_FallOffBottom
-    309  f119							; Bottom lane is safe for now. If the gap marker reaches the player on
-    310  f119							; the lowest lane, keep the player there instead of ending the round.
-    311  f119							; Game-over will be restored later via explicit hazard collision.
-    312  f119
-    313  f119				   UpdatePlayerLane_Done
-    314  f119		       60		      rts
-    315  f11a
-    316  f11a							; CheckHoleForLane
-    317  f11a							; IN:	X = lane index
-    318  f11a							; OUT: A = 1 if player aligns with shared moving missile-gap marker, else 0
-    319  f11a				   CheckHoleForLane
-    320  f11a		       a5 8a		      lda	TierGap0
-    321  f11c		       c9 24		      cmp	#PLAYER_GAP_MIN
-    322  f11e		       90 07		      bcc	CheckHoleForLane_NoHole
-    323  f120		       c9 2c		      cmp	#PLAYER_GAP_MAX
-    324  f122		       b0 03		      bcs	CheckHoleForLane_NoHole
-    325  f124		       a9 01		      lda	#1
-    326  f126		       60		      rts
-    327  f127
-    328  f127				   CheckHoleForLane_NoHole
-    329  f127		       a9 00		      lda	#0
-    330  f129		       60		      rts
-    331  f12a
-    332  f12a							; UpdateEntities: moves placeholders and respawns when off-screen.
-    333  f12a				   UpdateEntities
-    334  f12a		       a5 80		      lda	FrameCounter
-    335  f12c		       29 01		      and	#$01
-    336  f12e		       d0 16		      bne	UpdateEntities_Done
-    337  f130
-    338  f130		       c6 96		      dec	ConeX
-    339  f132		       c6 99		      dec	SkullX
-    340  f134
-    341  f134		       a5 96		      lda	ConeX
-    342  f136		       c9 02		      cmp	#2
-    343  f138		       b0 03		      bcs	UpdateEntities_CheckSkull
-    344  f13a		       20 af f1 	      jsr	RespawnCone
-    345  f13d
-    346  f13d				   UpdateEntities_CheckSkull
-    347  f13d		       a5 99		      lda	SkullX
-    348  f13f		       c9 02		      cmp	#2
-    349  f141		       b0 03		      bcs	UpdateEntities_Done
-    350  f143		       20 c5 f1 	      jsr	RespawnSkull
-    351  f146
-    352  f146				   UpdateEntities_Done
-    353  f146		       60		      rts
-    354  f147
-    355  f147							; CheckCollisions: lane + X-distance checks for cone/skull.
-    356  f147				   CheckCollisions
-    357  f147							; Cone pickup
-    358  f147		       a5 98		      lda	ConeLane
-    359  f149		       c5 88		      cmp	PlayerLane
-    360  f14b		       d0 0d		      bne	CheckCollisions_CheckSkull
-    361  f14d		       a5 96		      lda	ConeX
-    362  f14f		       20 6f f1 	      jsr	IsNearPlayerX
-    363  f152		       f0 06		      beq	CheckCollisions_CheckSkull
-    364  f154		       20 91 f1 	      jsr	AddScorePoint
-    365  f157		       20 af f1 	      jsr	RespawnCone
-    366  f15a
-    367  f15a				   CheckCollisions_CheckSkull
-    368  f15a							; Skull hazard
-    369  f15a		       a5 9b		      lda	SkullLane
-    370  f15c		       c5 88		      cmp	PlayerLane
-    371  f15e		       d0 0e		      bne	CheckCollisions_Done
-    372  f160		       a5 99		      lda	SkullX
-    373  f162		       20 6f f1 	      jsr	IsNearPlayerX
-    374  f165		       f0 07		      beq	CheckCollisions_Done
-    375  f167		       a9 01		      lda	#GAME_STATE_OVER
-    376  f169		       85 81		      sta	GameState
-    377  f16b		       20 98 f1 	      jsr	UpdateHighScore
-    378  f16e
-    379  f16e				   CheckCollisions_Done
-    380  f16e		       60		      rts
-    381  f16f
-    382  f16f							; IsNearPlayerX
-    383  f16f							; IN:	A = entity X
-    384  f16f							; OUT: A = 1 if |entityX - playerX| < 4, else 0
-    385  f16f				   IsNearPlayerX
-    386  f16f		       85 a4		      sta	Temp
-    387  f171		       a5 a4		      lda	Temp
-    388  f173		       c5 86		      cmp	PlayerX
-    389  f175		       b0 0b		      bcs	IsNearPlayerX_EntityRight
-    390  f177
-    391  f177							; Entity is left of player
-    392  f177		       a5 86		      lda	PlayerX
-    393  f179		       38		      sec
-    394  f17a		       e5 a4		      sbc	Temp
-    395  f17c		       c9 04		      cmp	#4
-    396  f17e		       90 0e		      bcc	IsNearPlayerX_Near
-    397  f180		       b0 09		      bcs	IsNearPlayerX_Far
-    398  f182
-    399  f182				   IsNearPlayerX_EntityRight
-    400  f182		       a5 a4		      lda	Temp
-    401  f184		       38		      sec
-    402  f185		       e5 86		      sbc	PlayerX
-    403  f187		       c9 04		      cmp	#4
-    404  f189		       90 03		      bcc	IsNearPlayerX_Near
-    405  f18b
-    406  f18b				   IsNearPlayerX_Far
-    407  f18b		       a9 00		      lda	#0
-    408  f18d		       60		      rts
-    409  f18e
-    410  f18e				   IsNearPlayerX_Near
-    411  f18e		       a9 01		      lda	#1
-    412  f190		       60		      rts
-    413  f191
-    414  f191							; -----------------------------------------------------------------------------
-    415  f191							; Scoring helpers
-    416  f191							; -----------------------------------------------------------------------------
-    417  f191
-    418  f191							; AddScorePoint: 16-bit binary score increment.
-    419  f191				   AddScorePoint
-    420  f191		       e6 9d		      inc	ScoreLo
-    421  f193		       d0 02		      bne	AddScorePoint_Done
-    422  f195		       e6 9e		      inc	ScoreHi
-    423  f197
-    424  f197				   AddScorePoint_Done
-    425  f197		       60		      rts
-    426  f198
-    427  f198							; UpdateHighScore: keeps HiScore >= current score.
-    428  f198				   UpdateHighScore
-    429  f198		       a5 9e		      lda	ScoreHi
-    430  f19a		       c5 a0		      cmp	HiScoreHi
-    431  f19c		       90 10		      bcc	UpdateHighScore_Done
-    432  f19e		       d0 06		      bne	UpdateHighScore_Store
-    433  f1a0
-    434  f1a0		       a5 9d		      lda	ScoreLo
-    435  f1a2		       c5 9f		      cmp	HiScoreLo
-    436  f1a4		       90 08		      bcc	UpdateHighScore_Done
-    437  f1a6
-    438  f1a6				   UpdateHighScore_Store
-    439  f1a6		       a5 9d		      lda	ScoreLo
-    440  f1a8		       85 9f		      sta	HiScoreLo
-    441  f1aa		       a5 9e		      lda	ScoreHi
-    442  f1ac		       85 a0		      sta	HiScoreHi
-    443  f1ae
-    444  f1ae				   UpdateHighScore_Done
-    445  f1ae		       60		      rts
-    446  f1af
-    447  f1af							; -----------------------------------------------------------------------------
-    448  f1af							; Entity and lane sync helpers
-    449  f1af							; -----------------------------------------------------------------------------
-    450  f1af
-    451  f1af							; RespawnCone: chooses new lane and places cone at right side.
-    452  f1af				   RespawnCone
-    453  f1af		       a9 b0		      lda	#CONE_RESPAWN_X
-    454  f1b1		       85 96		      sta	ConeX
-    455  f1b3		       20 88 f2 	      jsr	NextRandom
-    456  f1b6		       29 07		      and	#$07
-    457  f1b8		       c9 06		      cmp	#LANE_COUNT
-    458  f1ba		       90 03		      bcc	RespawnCone_StoreLane
-    459  f1bc		       38		      sec
-    460  f1bd		       e9 06		      sbc	#LANE_COUNT
-    461  f1bf
-    462  f1bf				   RespawnCone_StoreLane
-    463  f1bf		       85 98		      sta	ConeLane
-    464  f1c1		       20 df f1 	      jsr	SyncConeY
-    465  f1c4		       60		      rts
-    466  f1c5
-    467  f1c5							; RespawnSkull: chooses new lane and places skull at right side.
-    468  f1c5				   RespawnSkull
-    469  f1c5		       a9 c8		      lda	#SKULL_RESPAWN_X
-    470  f1c7		       85 99		      sta	SkullX
-    471  f1c9		       20 88 f2 	      jsr	NextRandom
-    472  f1cc		       29 03		      and	#$03
-    473  f1ce		       18		      clc
-    474  f1cf		       69 02		      adc	#2
-    475  f1d1		       85 9b		      sta	SkullLane
-    476  f1d3		       20 e7 f1 	      jsr	SyncSkullY
-    477  f1d6		       60		      rts
-    478  f1d7
-    479  f1d7				   SyncPlayerY
-    480  f1d7		       a6 88		      ldx	PlayerLane
-    481  f1d9		       bd 94 f2 	      lda	LaneYTable,x
-    482  f1dc		       85 87		      sta	PlayerY
-    483  f1de		       60		      rts
-    484  f1df
-    485  f1df				   SyncConeY
-    486  f1df		       a6 98		      ldx	ConeLane
-    487  f1e1		       bd 94 f2 	      lda	LaneYTable,x
-    488  f1e4		       85 97		      sta	ConeY
-    489  f1e6		       60		      rts
-    490  f1e7
-    491  f1e7				   SyncSkullY
-    492  f1e7		       a6 9b		      ldx	SkullLane
-    493  f1e9		       bd 94 f2 	      lda	LaneYTable,x
-    494  f1ec		       85 9a		      sta	SkullY
-    495  f1ee		       60		      rts
-    496  f1ef
-    497  f1ef							; -----------------------------------------------------------------------------
-    498  f1ef							; Positioning and kernel
-    499  f1ef							; -----------------------------------------------------------------------------
-    500  f1ef
-    501  f1ef							; PositionObjects: coarse/fine horizontal setup done in overscan.
-    502  f1ef							; Debug milestone: position all five TIA objects like examples/example.asm.
-    503  f1ef							; X index mapping for SetHorizPos: 0=P0, 1=P1, 2=M0, 3=M1, 4=Ball.
-    504  f1ef				   PositionObjects
-    505  f1ef		       a2 00		      ldx	#0
-    506  f1f1		       a5 86		      lda	PlayerX
-    507  f1f3		       20 70 f2 	      jsr	SetHorizPos
-    508  f1f6
-    509  f1f6		       a2 01		      ldx	#1
-    510  f1f8		       a9 40		      lda	#64
-    511  f1fa		       20 70 f2 	      jsr	SetHorizPos
-    512  f1fd
-    513  f1fd		       a2 02		      ldx	#2
-    514  f1ff		       a9 58		      lda	#88
-    515  f201		       20 70 f2 	      jsr	SetHorizPos
-    516  f204
-    517  f204		       a2 03		      ldx	#3
-    518  f206		       a9 70		      lda	#112
-    519  f208		       20 70 f2 	      jsr	SetHorizPos
-    520  f20b
-    521  f20b		       a2 04		      ldx	#4
-    522  f20d		       a9 88		      lda	#136
-    523  f20f		       20 70 f2 	      jsr	SetHorizPos
-    524  f212		       60		      rts
-    525  f213
-    526  f213							; DrawKernel: 192 visible scanlines.
-    527  f213							; Debug kernel based on examples/example.asm.
-    528  f213							; It writes both players, both missiles, and the ball on every scanline.
-    529  f213							; Platforms are intentionally disabled until this baseline is stable.
-    530  f213				   DrawKernel
-    531  f213		       a9 0e		      lda	#$0e
-    532  f215		       85 09		      sta	COLUBK
-    533  f217		       a9 08		      lda	#$08
-    534  f219		       85 06		      sta	COLUP0
-    535  f21b		       a9 56		      lda	#$56
-    536  f21d		       85 07		      sta	COLUP1
-    537  f21f		       a9 3a		      lda	#$3a
-    538  f221		       85 08		      sta	COLUPF
-    539  f223		       a9 30		      lda	#$30
-    540  f225		       85 0a		      sta	CTRLPF
-    541  f227		       a9 10		      lda	#$10
-    542  f229		       85 04		      sta	NUSIZ0
-    543  f22b		       85 05		      sta	NUSIZ1
-    544  f22d
-    545  f22d		       a9 00		      lda	#0
-    546  f22f		       85 a1		      sta	KernelScanline
-    547  f231		       85 a2		      sta	KernelPhase
-    548  f233		       85 0d		      sta	PF0
-    549  f235		       85 0e		      sta	PF1
-    550  f237		       85 0f		      sta	PF2
-    551  f239		       85 1b		      sta	GRP0
-    552  f23b		       85 1c		      sta	GRP1
-    553  f23d		       a2 c0		      ldx	#192
-    554  f23f		       a0 00		      ldy	#0
-    555  f241
-    556  f241				   DrawKernel_Loop
-    557  f241		       85 02		      sta	WSYNC
-    558  f243		       b9 cc f2 	      lda	DebugSprite,y
-    559  f246		       85 1b		      sta	GRP0
-    560  f248		       49 ff		      eor	#$ff
-    561  f24a		       85 1c		      sta	GRP1
-    562  f24c		       98		      tya
-    563  f24d		       29 02		      and	#$02
-    564  f24f		       85 1d		      sta	ENAM0
-    565  f251		       85 1e		      sta	ENAM1
-    566  f253		       85 1f		      sta	ENABL
-    567  f255		       c8		      iny
-    568  f256		       c0 08		      cpy	#8
-    569  f258		       d0 02		      bne	DrawKernel_NoWrap
-    570  f25a		       a0 00		      ldy	#0
-    571  f25c
-    572  f25c				   DrawKernel_NoWrap
-    573  f25c		       ca		      dex
-    574  f25d		       f0 03		      beq	DrawKernel_Done
-    575  f25f		       4c 41 f2 	      jmp	DrawKernel_Loop
-    576  f262
-    577  f262				   DrawKernel_Done
-    578  f262		       a9 00		      lda	#0
-    579  f264		       85 1b		      sta	GRP0
-    580  f266		       85 1c		      sta	GRP1
-    581  f268		       85 1d		      sta	ENAM0
-    582  f26a		       85 1e		      sta	ENAM1
-    583  f26c		       85 1f		      sta	ENABL
-    584  f26e		       60		      rts
-    585  f26f
-    586  f26f							; DrawHUD: placeholder hook for future dedicated score kernel.
-    587  f26f				   DrawHUD
-    588  f26f		       60		      rts
-    589  f270
-    590  f270							; SetHorizPos
-    591  f270							; IN:	A = X position, X = object index (0=P0,1=P1,2=M0,3=M1,4=BL)
-    592  f270							; OUT: Coarse/fine horizontal position applied with HMOVE.
-    593  f270				   SetHorizPos
-    594  f270		       85 02		      sta	WSYNC
-    595  f272		       85 2b		      sta	HMCLR
-    596  f274		       38		      sec
-    597  f275
-    598  f275				   SetHorizPos_DivideLoop
-    599  f275		       e9 0f		      sbc	#15
-    600  f277		       b0 fc		      bcs	SetHorizPos_DivideLoop
-    601  f279		       49 07		      eor	#7
-    602  f27b		       0a		      asl
-    603  f27c		       0a		      asl
-    604  f27d		       0a		      asl
-    605  f27e		       0a		      asl
-    606  f27f		       95 10		      sta	RESP0,x
-    607  f281		       95 20		      sta	HMP0,x
-    608  f283		       85 02		      sta	WSYNC
-    609  f285		       85 2a		      sta	HMOVE
-    610  f287		       60		      rts
-    611  f288
-    612  f288							; NextRandom: tiny LFSR-ish generator used for lane selection.
-    613  f288				   NextRandom
-    614  f288		       a5 82		      lda	Random
-    615  f28a		       f0 03		      beq	NextRandom_DoEor
-    616  f28c		       4a		      lsr
-    617  f28d		       90 02		      bcc	NextRandom_NoEor
-    618  f28f
-    619  f28f				   NextRandom_DoEor
-    620  f28f		       49 b4		      eor	#$B4
-    621  f291
-    622  f291				   NextRandom_NoEor
-    623  f291		       85 82		      sta	Random
-    624  f293		       60		      rts
-    625  f294
-    626  f294							; -----------------------------------------------------------------------------
-    627  f294							; Data tables
-    628  f294							; -----------------------------------------------------------------------------
-    629  f294
-    630  f294							; Lane top-Y values for 8-pixel sprites.
-    631  f294				   LaneYTable
-    632  f294		       0b 1d 2f 41*	      .byte.b	11,29,47,65,83,101
-    633  f29a
-    634  f29a							; Gap animation patterns (coarse playfield masks).
-    635  f29a				   PlatformPF0Table
-    636  f29a		       f0 e0 c0 80*	      .byte.b	$f0,$e0,$c0,$80,$00,$10,$30,$70
-    637  f2a2				   PlatformPF1Table
-    638  f2a2		       ff ff 7f 3f*	      .byte.b	$ff,$ff,$7f,$3f,$1f,$0f,$87,$c3
-    639  f2aa				   PlatformPF2Table
-    640  f2aa		       ff fe fc f8*	      .byte.b	$ff,$fe,$fc,$f8,$f0,$e0,$c0,$80
-    641  f2b2
-    642  f2b2							; Platform register values indexed by PlatformMask (0=off, 1=platform).
-    643  f2b2							; The kernel writes all of these every scanline so platform rows and gaps take
-    644  f2b2							; the same timing path whether visible or hidden.
-    645  f2b2				   PlatformPF0Value
-    646  f2b2		       00 f0		      .byte.b	$00,$f0
-    647  f2b4				   PlatformPF1Value
-    648  f2b4		       00 ff		      .byte.b	$00,$ff
-    649  f2b6				   PlatformPF2Value
-    650  f2b6		       00 ff		      .byte.b	$00,$ff
-    651  f2b8				   PlatformP1Value
-    652  f2b8		       00 18		      .byte.b	$00,%00011000
-    653  f2ba				   PlatformEnableValue
-    654  f2ba		       00 02		      .byte.b	$00,$02
-    655  f2bc
-    656  f2bc							; 16-step fill table for top HUD placeholder.
-    657  f2bc				   HudPF1Table
-    658  f2bc		       00 80 c0 e0*	      .byte.b	$00,$80,$c0,$e0,$f0,$f8,$fc,$fe
-    659  f2c4		       ff 7f 3f 1f*	      .byte.b	$ff,$7f,$3f,$1f,$0f,$07,$03,$01
-    660  f2cc
-    661  f2cc							; 8-line debug sprite used by the reference-style stable kernel.
-    662  f2cc				   DebugSprite
-    663  f2cc		       81		      .byte.b	%10000001
-    664  f2cd		       42		      .byte.b	%01000010
-    665  f2ce		       24		      .byte.b	%00100100
-    666  f2cf		       18		      .byte.b	%00011000
-    667  f2d0		       18		      .byte.b	%00011000
-    668  f2d1		       24		      .byte.b	%00100100
-    669  f2d2		       42		      .byte.b	%01000010
-    670  f2d3		       81		      .byte.b	%10000001
-    671  f2d4
-    672  f2d4							; 7-line player sprite.
-    673  f2d4				   PlayerSprite
-    674  f2d4		       3c		      .byte.b	%00111100
-    675  f2d5		       7e		      .byte.b	%01111110
-    676  f2d6		       7e		      .byte.b	%01111110
-    677  f2d7		       7e		      .byte.b	%01111110
-    678  f2d8		       7e		      .byte.b	%01111110
-    679  f2d9		       7e		      .byte.b	%01111110
-    680  f2da		       3c		      .byte.b	%00111100
-    681  f2db
-    682  f2db							; 192-line platform mask: exactly six 6-scanline platform bands.
-    683  f2db							; Bands begin at scanlines 18, 36, 54, 72, 90, and 108.
-    684  f2db				   PlatformMask
-    685  f2db					      REPEAT	18
-    686  f2db		       00		      .byte.b	0
-    685  f2db					      REPEND
-    686  f2dc		       00		      .byte.b	0
-    685  f2dc					      REPEND
-    686  f2dd		       00		      .byte.b	0
-    685  f2dd					      REPEND
-    686  f2de		       00		      .byte.b	0
-    685  f2de					      REPEND
-    686  f2df		       00		      .byte.b	0
-    685  f2df					      REPEND
-    686  f2e0		       00		      .byte.b	0
-    685  f2e0					      REPEND
-    686  f2e1		       00		      .byte.b	0
-    685  f2e1					      REPEND
-    686  f2e2		       00		      .byte.b	0
-    685  f2e2					      REPEND
-    686  f2e3		       00		      .byte.b	0
-    685  f2e3					      REPEND
-    686  f2e4		       00		      .byte.b	0
-    685  f2e4					      REPEND
-    686  f2e5		       00		      .byte.b	0
-    685  f2e5					      REPEND
-    686  f2e6		       00		      .byte.b	0
-    685  f2e6					      REPEND
-    686  f2e7		       00		      .byte.b	0
-    685  f2e7					      REPEND
-    686  f2e8		       00		      .byte.b	0
-    685  f2e8					      REPEND
-    686  f2e9		       00		      .byte.b	0
-    685  f2e9					      REPEND
-    686  f2ea		       00		      .byte.b	0
-    685  f2ea					      REPEND
-    686  f2eb		       00		      .byte.b	0
-    685  f2eb					      REPEND
-    686  f2ec		       00		      .byte.b	0
-    687  f2ed					      REPEND
-    688  f2ed					      REPEAT	6
-    689  f2ed		       01		      .byte.b	1
-    688  f2ed					      REPEND
-    689  f2ee		       01		      .byte.b	1
-    688  f2ee					      REPEND
-    689  f2ef		       01		      .byte.b	1
-    688  f2ef					      REPEND
-    689  f2f0		       01		      .byte.b	1
-    688  f2f0					      REPEND
-    689  f2f1		       01		      .byte.b	1
-    688  f2f1					      REPEND
-    689  f2f2		       01		      .byte.b	1
-    690  f2f3					      REPEND
-    691  f2f3					      REPEAT	12
-    692  f2f3		       00		      .byte.b	0
-    691  f2f3					      REPEND
-    692  f2f4		       00		      .byte.b	0
-    691  f2f4					      REPEND
-    692  f2f5		       00		      .byte.b	0
-    691  f2f5					      REPEND
-    692  f2f6		       00		      .byte.b	0
-    691  f2f6					      REPEND
-    692  f2f7		       00		      .byte.b	0
-    691  f2f7					      REPEND
-    692  f2f8		       00		      .byte.b	0
-    691  f2f8					      REPEND
-    692  f2f9		       00		      .byte.b	0
-    691  f2f9					      REPEND
-    692  f2fa		       00		      .byte.b	0
-    691  f2fa					      REPEND
-    692  f2fb		       00		      .byte.b	0
-    691  f2fb					      REPEND
-    692  f2fc		       00		      .byte.b	0
-    691  f2fc					      REPEND
-    692  f2fd		       00		      .byte.b	0
-    691  f2fd					      REPEND
-    692  f2fe		       00		      .byte.b	0
-    693  f2ff					      REPEND
-    694  f2ff					      REPEAT	6
-    695  f2ff		       01		      .byte.b	1
-    694  f2ff					      REPEND
-    695  f300		       01		      .byte.b	1
-    694  f300					      REPEND
-    695  f301		       01		      .byte.b	1
-    694  f301					      REPEND
-    695  f302		       01		      .byte.b	1
-    694  f302					      REPEND
-    695  f303		       01		      .byte.b	1
-    694  f303					      REPEND
-    695  f304		       01		      .byte.b	1
-    696  f305					      REPEND
-    697  f305					      REPEAT	12
-    698  f305		       00		      .byte.b	0
-    697  f305					      REPEND
-    698  f306		       00		      .byte.b	0
-    697  f306					      REPEND
-    698  f307		       00		      .byte.b	0
-    697  f307					      REPEND
-    698  f308		       00		      .byte.b	0
-    697  f308					      REPEND
-    698  f309		       00		      .byte.b	0
-    697  f309					      REPEND
-    698  f30a		       00		      .byte.b	0
-    697  f30a					      REPEND
-    698  f30b		       00		      .byte.b	0
-    697  f30b					      REPEND
-    698  f30c		       00		      .byte.b	0
-    697  f30c					      REPEND
-    698  f30d		       00		      .byte.b	0
-    697  f30d					      REPEND
-    698  f30e		       00		      .byte.b	0
-    697  f30e					      REPEND
-    698  f30f		       00		      .byte.b	0
-    697  f30f					      REPEND
-    698  f310		       00		      .byte.b	0
-    699  f311					      REPEND
-    700  f311					      REPEAT	6
-    701  f311		       01		      .byte.b	1
-    700  f311					      REPEND
-    701  f312		       01		      .byte.b	1
-    700  f312					      REPEND
-    701  f313		       01		      .byte.b	1
-    700  f313					      REPEND
-    701  f314		       01		      .byte.b	1
-    700  f314					      REPEND
-    701  f315		       01		      .byte.b	1
-    700  f315					      REPEND
-    701  f316		       01		      .byte.b	1
-    702  f317					      REPEND
-    703  f317					      REPEAT	12
-    704  f317		       00		      .byte.b	0
-    703  f317					      REPEND
-    704  f318		       00		      .byte.b	0
-    703  f318					      REPEND
-    704  f319		       00		      .byte.b	0
-    703  f319					      REPEND
-    704  f31a		       00		      .byte.b	0
-    703  f31a					      REPEND
-    704  f31b		       00		      .byte.b	0
-    703  f31b					      REPEND
-    704  f31c		       00		      .byte.b	0
-    703  f31c					      REPEND
-    704  f31d		       00		      .byte.b	0
-    703  f31d					      REPEND
-    704  f31e		       00		      .byte.b	0
-    703  f31e					      REPEND
-    704  f31f		       00		      .byte.b	0
-    703  f31f					      REPEND
-    704  f320		       00		      .byte.b	0
-    703  f320					      REPEND
-    704  f321		       00		      .byte.b	0
-    703  f321					      REPEND
-    704  f322		       00		      .byte.b	0
-    705  f323					      REPEND
-    706  f323					      REPEAT	6
-    707  f323		       01		      .byte.b	1
-    706  f323					      REPEND
-    707  f324		       01		      .byte.b	1
-    706  f324					      REPEND
-    707  f325		       01		      .byte.b	1
-    706  f325					      REPEND
-    707  f326		       01		      .byte.b	1
-    706  f326					      REPEND
-    707  f327		       01		      .byte.b	1
-    706  f327					      REPEND
-    707  f328		       01		      .byte.b	1
-    708  f329					      REPEND
-    709  f329					      REPEAT	12
-    710  f329		       00		      .byte.b	0
-    709  f329					      REPEND
-    710  f32a		       00		      .byte.b	0
-    709  f32a					      REPEND
-    710  f32b		       00		      .byte.b	0
-    709  f32b					      REPEND
-    710  f32c		       00		      .byte.b	0
-    709  f32c					      REPEND
-    710  f32d		       00		      .byte.b	0
-    709  f32d					      REPEND
-    710  f32e		       00		      .byte.b	0
-    709  f32e					      REPEND
-    710  f32f		       00		      .byte.b	0
-    709  f32f					      REPEND
-    710  f330		       00		      .byte.b	0
-    709  f330					      REPEND
-    710  f331		       00		      .byte.b	0
-    709  f331					      REPEND
-    710  f332		       00		      .byte.b	0
-    709  f332					      REPEND
-    710  f333		       00		      .byte.b	0
-    709  f333					      REPEND
-    710  f334		       00		      .byte.b	0
-    711  f335					      REPEND
-    712  f335					      REPEAT	6
-    713  f335		       01		      .byte.b	1
-    712  f335					      REPEND
-    713  f336		       01		      .byte.b	1
-    712  f336					      REPEND
-    713  f337		       01		      .byte.b	1
-    712  f337					      REPEND
-    713  f338		       01		      .byte.b	1
-    712  f338					      REPEND
-    713  f339		       01		      .byte.b	1
-    712  f339					      REPEND
-    713  f33a		       01		      .byte.b	1
-    714  f33b					      REPEND
-    715  f33b					      REPEAT	12
-    716  f33b		       00		      .byte.b	0
-    715  f33b					      REPEND
-    716  f33c		       00		      .byte.b	0
-    715  f33c					      REPEND
-    716  f33d		       00		      .byte.b	0
-    715  f33d					      REPEND
-    716  f33e		       00		      .byte.b	0
-    715  f33e					      REPEND
-    716  f33f		       00		      .byte.b	0
-    715  f33f					      REPEND
-    716  f340		       00		      .byte.b	0
-    715  f340					      REPEND
-    716  f341		       00		      .byte.b	0
-    715  f341					      REPEND
-    716  f342		       00		      .byte.b	0
-    715  f342					      REPEND
-    716  f343		       00		      .byte.b	0
-    715  f343					      REPEND
-    716  f344		       00		      .byte.b	0
-    715  f344					      REPEND
-    716  f345		       00		      .byte.b	0
-    715  f345					      REPEND
-    716  f346		       00		      .byte.b	0
-    717  f347					      REPEND
-    718  f347					      REPEAT	6
-    719  f347		       01		      .byte.b	1
-    718  f347					      REPEND
-    719  f348		       01		      .byte.b	1
-    718  f348					      REPEND
-    719  f349		       01		      .byte.b	1
-    718  f349					      REPEND
-    719  f34a		       01		      .byte.b	1
-    718  f34a					      REPEND
-    719  f34b		       01		      .byte.b	1
-    718  f34b					      REPEND
-    719  f34c		       01		      .byte.b	1
-    720  f34d					      REPEND
-    721  f34d					      REPEAT	78
-    722  f34d		       00		      .byte.b	0
-    721  f34d					      REPEND
-    722  f34e		       00		      .byte.b	0
-    721  f34e					      REPEND
-    722  f34f		       00		      .byte.b	0
-    721  f34f					      REPEND
-    722  f350		       00		      .byte.b	0
-    721  f350					      REPEND
-    722  f351		       00		      .byte.b	0
-    721  f351					      REPEND
-    722  f352		       00		      .byte.b	0
-    721  f352					      REPEND
-    722  f353		       00		      .byte.b	0
-    721  f353					      REPEND
-    722  f354		       00		      .byte.b	0
-    721  f354					      REPEND
-    722  f355		       00		      .byte.b	0
-    721  f355					      REPEND
-    722  f356		       00		      .byte.b	0
-    721  f356					      REPEND
-    722  f357		       00		      .byte.b	0
-    721  f357					      REPEND
-    722  f358		       00		      .byte.b	0
-    721  f358					      REPEND
-    722  f359		       00		      .byte.b	0
-    721  f359					      REPEND
-    722  f35a		       00		      .byte.b	0
-    721  f35a					      REPEND
-    722  f35b		       00		      .byte.b	0
-    721  f35b					      REPEND
-    722  f35c		       00		      .byte.b	0
-    721  f35c					      REPEND
-    722  f35d		       00		      .byte.b	0
-    721  f35d					      REPEND
-    722  f35e		       00		      .byte.b	0
-    721  f35e					      REPEND
-    722  f35f		       00		      .byte.b	0
-    721  f35f					      REPEND
-    722  f360		       00		      .byte.b	0
-    721  f360					      REPEND
-    722  f361		       00		      .byte.b	0
-    721  f361					      REPEND
-    722  f362		       00		      .byte.b	0
-    721  f362					      REPEND
-    722  f363		       00		      .byte.b	0
-    721  f363					      REPEND
-    722  f364		       00		      .byte.b	0
-    721  f364					      REPEND
-    722  f365		       00		      .byte.b	0
-    721  f365					      REPEND
-    722  f366		       00		      .byte.b	0
-    721  f366					      REPEND
-    722  f367		       00		      .byte.b	0
-    721  f367					      REPEND
-    722  f368		       00		      .byte.b	0
-    721  f368					      REPEND
-    722  f369		       00		      .byte.b	0
-    721  f369					      REPEND
-    722  f36a		       00		      .byte.b	0
-    721  f36a					      REPEND
-    722  f36b		       00		      .byte.b	0
-    721  f36b					      REPEND
-    722  f36c		       00		      .byte.b	0
-    721  f36c					      REPEND
-    722  f36d		       00		      .byte.b	0
-    721  f36d					      REPEND
-    722  f36e		       00		      .byte.b	0
-    721  f36e					      REPEND
-    722  f36f		       00		      .byte.b	0
-    721  f36f					      REPEND
-    722  f370		       00		      .byte.b	0
-    721  f370					      REPEND
-    722  f371		       00		      .byte.b	0
-    721  f371					      REPEND
-    722  f372		       00		      .byte.b	0
-    721  f372					      REPEND
-    722  f373		       00		      .byte.b	0
-    721  f373					      REPEND
-    722  f374		       00		      .byte.b	0
-    721  f374					      REPEND
-    722  f375		       00		      .byte.b	0
-    721  f375					      REPEND
-    722  f376		       00		      .byte.b	0
-    721  f376					      REPEND
-    722  f377		       00		      .byte.b	0
-    721  f377					      REPEND
-    722  f378		       00		      .byte.b	0
-    721  f378					      REPEND
-    722  f379		       00		      .byte.b	0
-    721  f379					      REPEND
-    722  f37a		       00		      .byte.b	0
-    721  f37a					      REPEND
-    722  f37b		       00		      .byte.b	0
-    721  f37b					      REPEND
-    722  f37c		       00		      .byte.b	0
-    721  f37c					      REPEND
-    722  f37d		       00		      .byte.b	0
-    721  f37d					      REPEND
-    722  f37e		       00		      .byte.b	0
-    721  f37e					      REPEND
-    722  f37f		       00		      .byte.b	0
-    721  f37f					      REPEND
-    722  f380		       00		      .byte.b	0
-    721  f380					      REPEND
-    722  f381		       00		      .byte.b	0
-    721  f381					      REPEND
-    722  f382		       00		      .byte.b	0
-    721  f382					      REPEND
-    722  f383		       00		      .byte.b	0
-    721  f383					      REPEND
-    722  f384		       00		      .byte.b	0
-    721  f384					      REPEND
-    722  f385		       00		      .byte.b	0
-    721  f385					      REPEND
-    722  f386		       00		      .byte.b	0
-    721  f386					      REPEND
-    722  f387		       00		      .byte.b	0
-    721  f387					      REPEND
-    722  f388		       00		      .byte.b	0
-    721  f388					      REPEND
-    722  f389		       00		      .byte.b	0
-    721  f389					      REPEND
-    722  f38a		       00		      .byte.b	0
-    721  f38a					      REPEND
-    722  f38b		       00		      .byte.b	0
-    721  f38b					      REPEND
-    722  f38c		       00		      .byte.b	0
-    721  f38c					      REPEND
-    722  f38d		       00		      .byte.b	0
-    721  f38d					      REPEND
-    722  f38e		       00		      .byte.b	0
-    721  f38e					      REPEND
-    722  f38f		       00		      .byte.b	0
-    721  f38f					      REPEND
-    722  f390		       00		      .byte.b	0
-    721  f390					      REPEND
-    722  f391		       00		      .byte.b	0
-    721  f391					      REPEND
-    722  f392		       00		      .byte.b	0
-    721  f392					      REPEND
-    722  f393		       00		      .byte.b	0
-    721  f393					      REPEND
-    722  f394		       00		      .byte.b	0
-    721  f394					      REPEND
-    722  f395		       00		      .byte.b	0
-    721  f395					      REPEND
-    722  f396		       00		      .byte.b	0
-    721  f396					      REPEND
-    722  f397		       00		      .byte.b	0
-    721  f397					      REPEND
-    722  f398		       00		      .byte.b	0
-    721  f398					      REPEND
-    722  f399		       00		      .byte.b	0
-    721  f399					      REPEND
-    722  f39a		       00		      .byte.b	0
-    723  f39b					      REPEND
-    724  f39b
-    725  f39b							; 8-line cone sprite.
-    726  f39b				   ConeSprite
-    727  f39b		       18		      .byte.b	%00011000
-    728  f39c		       18		      .byte.b	%00011000
-    729  f39d		       3c		      .byte.b	%00111100
-    730  f39e		       3c		      .byte.b	%00111100
-    731  f39f		       7e		      .byte.b	%01111110
-    732  f3a0		       7e		      .byte.b	%01111110
-    733  f3a1		       ff		      .byte.b	%11111111
-    734  f3a2		       18		      .byte.b	%00011000
-    735  f3a3
-    736  f3a3							; 8-line skull-ish placeholder sprite.
-    737  f3a3				   SkullSprite
-    738  f3a3		       3c		      .byte.b	%00111100
-    739  f3a4		       7e		      .byte.b	%01111110
-    740  f3a5		       5a		      .byte.b	%01011010
-    741  f3a6		       7e		      .byte.b	%01111110
-    742  f3a7		       3c		      .byte.b	%00111100
-    743  f3a8		       24		      .byte.b	%00100100
-    744  f3a9		       5a		      .byte.b	%01011010
-    745  f3aa		       81		      .byte.b	%10000001
-    746  f3ab
-    747  f3ab							; -----------------------------------------------------------------------------
-    748  f3ab							; Vectors
-    749  f3ab							; -----------------------------------------------------------------------------
-    750  fffc					      org	$fffc
-    751  fffc		       00 f0		      .word.w	Start
-    752  fffe		       00 f0		      .word.w	Start
+    129  f00b
+    130  f00b							; --- one-time setup (survives a soft restart) ---
+    131  f00b							; Solid, full-width playfield (held for the whole program)
+    132  f00b		       a9 f0		      lda	#$F0
+    133  f00d		       85 0d		      sta	PF0
+    134  f00f		       a9 ff		      lda	#$FF
+    135  f011		       85 0e		      sta	PF1
+    136  f013		       85 0f		      sta	PF2
+    137  f015		       a9 00		      lda	#0
+    138  f017		       85 0a		      sta	CTRLPF	; players/missiles draw over the playfield
+    139  f019
+    140  f019							; Missile 0 is GAP_WIDTH wide (player stays normal width)
+    141  f019		       a9 30		      lda	#$30
+    142  f01b		       85 04		      sta	NUSIZ0
+    143  f01d
+    144  f01d							; Default every motion register to $80, the cycle-74 HMOVE "no motion"
+    145  f01d							; value: the per-band cycle-74 HMOVEs re-apply ALL HMxx, and $00 there
+    146  f01d							; is NOT zero motion (it would walk the object); $80 (NO_MO_74) holds
+    147  f01d							; non-targeted objects still. The player P0 is (re)placed each frame in
+    148  f01d							; the HUD transition; gaps/entities are placed per band.
+    149  f01d		       85 2b		      sta	HMCLR
+    150  f01f		       a9 80		      lda	#$80
+    151  f021		       85 20		      sta	HMP0
+    152  f023		       85 22		      sta	HMM0
+    153  f025		       85 21		      sta	HMP1
+    154  f027
+    155  f027		       a9 01		      lda	#1
+    156  f029		       85 c0		      sta	rng	; PRNG seed (set once; advances across games)
+    157  f02b
+    158  f02b							;-------------------------------------------------------------
+    159  f02b							; NewGame - (re)start a round. Reached from Reset and from a game-over
+    160  f02b							; restart. Resets all gameplay state but NOT hiScore (or rng).
+    161  f02b							;-------------------------------------------------------------
+    162  f02b				   NewGame
+    163  f02b		       a9 0c		      lda	#COL_BG
+    164  f02d		       85 09		      sta	COLUBK	; clear any game-over red tint
+    165  f02f
+    166  f02f		       a9 05		      lda	#5
+    167  f031		       85 80		      sta	playerFloor	; player starts on the bottom tier
+    168  f033		       a9 00		      lda	#0
+    169  f035		       85 82		      sta	btnPrev
+    170  f037		       85 c1		      sta	gameState
+    171  f039		       85 c7		      sta	goCnt
+    172  f03b		       85 c2		      sta	scoreBCD+0
+    173  f03d		       85 c3		      sta	scoreBCD+1
+    174  f03f		       85 c4		      sta	scoreBCD+2
+    175  f041		       85 b0		      sta	scrollFrac
+    176  f043		       a9 20		      lda	#SPEED_BASE
+    177  f045		       85 af		      sta	scrollSpeed	; start each game at base speed (1 px/frame)
+    178  f047
+    179  f047							; Staggered initial gap positions (floor 5 has no gap)
+    180  f047		       a9 8c		      lda	#140
+    181  f049		       85 8b		      sta	gapX+0
+    182  f04b		       a9 6e		      lda	#110
+    183  f04d		       85 8c		      sta	gapX+1
+    184  f04f		       a9 50		      lda	#80
+    185  f051		       85 8d		      sta	gapX+2
+    186  f053		       a9 32		      lda	#50
+    187  f055		       85 8e		      sta	gapX+3
+    188  f057		       a9 82		      lda	#130
+    189  f059		       85 8f		      sta	gapX+4
+    190  f05b		       a9 00		      lda	#0
+    191  f05d		       85 90		      sta	gapX+5
+    192  f05f
+    193  f05f							; Entities: staggered positions and initial types (one per platform)
+    194  f05f		       a9 01		      lda	#ENT_CONE
+    195  f061		       85 9d		      sta	entType+0
+    196  f063		       a9 02		      lda	#ENT_SKULL
+    197  f065		       85 9e		      sta	entType+1
+    198  f067		       a9 01		      lda	#ENT_CONE
+    199  f069		       85 9f		      sta	entType+2
+    200  f06b		       a9 01		      lda	#ENT_CONE
+    201  f06d		       85 a0		      sta	entType+3
+    202  f06f		       a9 02		      lda	#ENT_SKULL
+    203  f071		       85 a1		      sta	entType+4
+    204  f073		       a9 01		      lda	#ENT_CONE
+    205  f075		       85 a2		      sta	entType+5
+    206  f077		       a9 96		      lda	#150
+    207  f079		       85 a3		      sta	entX+0
+    208  f07b		       a9 5f		      lda	#95
+    209  f07d		       85 a4		      sta	entX+1
+    210  f07f		       a9 7d		      lda	#125
+    211  f081		       85 a5		      sta	entX+2
+    212  f083		       a9 41		      lda	#65
+    213  f085		       85 a6		      sta	entX+3
+    214  f087		       a9 23		      lda	#35
+    215  f089		       85 a7		      sta	entX+4
+    216  f08b		       a9 69		      lda	#105
+    217  f08d		       85 a8		      sta	entX+5
+    218  f08f
+    219  f08f		       20 79 f3 	      jsr	GetDigitPtrs	; seed digit pointers for the first HUD
+    220  f092
+    221  f092							;-------------------------------------------------------------
+    222  f092							; Main frame loop
+    223  f092							;-------------------------------------------------------------
+    224  f092				   NextFrame
+    225  f092		       a9 02		      lda	#2
+    226  f094		       85 01		      sta	VBLANK
+      0  f096					      VERTICAL_SYNC		; 3 vsync lines (leaves A=0)
+      1  f096		       a9 0e		      lda	#%1110
+      2  f098		       85 02	   .VSLP1     sta	WSYNC
+      3  f09a		       85 00		      sta	VSYNC
+      4  f09c		       4a		      lsr
+      5  f09d		       d0 f9		      bne	.VSLP1
+    228  f09f		       85 2c		      sta	CXCLR	; clear collision latches for this frame
+    229  f0a1
+    230  f0a1							; --- position the score sprites (P0+P1, 3 copies each = 6 digits) ---
+    231  f0a1							; (uses 2 of the 36 VBLANK scanlines; the rest are the WSYNC loop below)
+    232  f0a1		       a9 03		      lda	#THREE_COPIES
+    233  f0a3		       85 04		      sta	NUSIZ0
+    234  f0a5		       85 05		      sta	NUSIZ1
+    235  f0a7		       a9 00		      lda	#SCORE_COL
+    236  f0a9		       85 06		      sta	COLUP0
+    237  f0ab		       85 07		      sta	COLUP1
+    238  f0ad		       85 02		      sta	WSYNC	; vblank line 1
+      0  f0af					      SLEEP	SCORE_SLEEP
+      1  f0af				   .CYCLES    SET	SCORE_SLEEP
+      2  f0af
+      3  f0af				  -	      IF	.CYCLES < 2
+      4  f0af				  -	      ECHO	"MACRO ERROR: 'SLEEP': Duration must be > 1"
+      5  f0af				  -	      ERR
+      6  f0af					      ENDIF
+      7  f0af
+      8  f0af				  -	      IF	.CYCLES & 1
+      9  f0af				  -	      IFNCONST	NO_ILLEGAL_OPCODES
+     10  f0af				  -	      nop	0
+     11  f0af				  -	      ELSE
+     12  f0af				  -	      bit	VSYNC
+     13  f0af				  -	      ENDIF
+     14  f0af				  -.CYCLES    SET	.CYCLES - 3
+     15  f0af					      ENDIF
+     16  f0af
+     17  f0af					      REPEAT	.CYCLES / 2
+     18  f0af		       ea		      nop
+     17  f0af					      REPEND
+     18  f0b0		       ea		      nop
+     17  f0b0					      REPEND
+     18  f0b1		       ea		      nop
+     17  f0b1					      REPEND
+     18  f0b2		       ea		      nop
+     17  f0b2					      REPEND
+     18  f0b3		       ea		      nop
+     17  f0b3					      REPEND
+     18  f0b4		       ea		      nop
+     17  f0b4					      REPEND
+     18  f0b5		       ea		      nop
+     17  f0b5					      REPEND
+     18  f0b6		       ea		      nop
+     17  f0b6					      REPEND
+     18  f0b7		       ea		      nop
+     17  f0b7					      REPEND
+     18  f0b8		       ea		      nop
+     17  f0b8					      REPEND
+     18  f0b9		       ea		      nop
+     17  f0b9					      REPEND
+     18  f0ba		       ea		      nop
+     17  f0ba					      REPEND
+     18  f0bb		       ea		      nop
+     17  f0bb					      REPEND
+     18  f0bc		       ea		      nop
+     17  f0bc					      REPEND
+     18  f0bd		       ea		      nop
+     17  f0bd					      REPEND
+     18  f0be		       ea		      nop
+     17  f0be					      REPEND
+     18  f0bf		       ea		      nop
+     17  f0bf					      REPEND
+     18  f0c0		       ea		      nop
+     19  f0c1					      REPEND
+    240  f0c1		       85 10		      sta	RESP0	; coarse-position P0 and P1 together
+    241  f0c3		       85 11		      sta	RESP1
+    242  f0c5		       85 2b		      sta	HMCLR	; clear stray motion (player left HMP0=$80)
+    243  f0c7		       a9 10		      lda	#$10
+    244  f0c9		       85 21		      sta	HMP1	; nudge P1 so its copies interleave with P0's
+    245  f0cb		       85 02		      sta	WSYNC	; vblank line 2
+    246  f0cd		       85 2a		      sta	HMOVE
+      0  f0cf					      SLEEP	24	; settle time after HMOVE before HMCLR
+      1  f0cf				   .CYCLES    SET	24
+      2  f0cf
+      3  f0cf				  -	      IF	.CYCLES < 2
+      4  f0cf				  -	      ECHO	"MACRO ERROR: 'SLEEP': Duration must be > 1"
+      5  f0cf				  -	      ERR
+      6  f0cf					      ENDIF
+      7  f0cf
+      8  f0cf				  -	      IF	.CYCLES & 1
+      9  f0cf				  -	      IFNCONST	NO_ILLEGAL_OPCODES
+     10  f0cf				  -	      nop	0
+     11  f0cf				  -	      ELSE
+     12  f0cf				  -	      bit	VSYNC
+     13  f0cf				  -	      ENDIF
+     14  f0cf				  -.CYCLES    SET	.CYCLES - 3
+     15  f0cf					      ENDIF
+     16  f0cf
+     17  f0cf					      REPEAT	.CYCLES / 2
+     18  f0cf		       ea		      nop
+     17  f0cf					      REPEND
+     18  f0d0		       ea		      nop
+     17  f0d0					      REPEND
+     18  f0d1		       ea		      nop
+     17  f0d1					      REPEND
+     18  f0d2		       ea		      nop
+     17  f0d2					      REPEND
+     18  f0d3		       ea		      nop
+     17  f0d3					      REPEND
+     18  f0d4		       ea		      nop
+     17  f0d4					      REPEND
+     18  f0d5		       ea		      nop
+     17  f0d5					      REPEND
+     18  f0d6		       ea		      nop
+     17  f0d6					      REPEND
+     18  f0d7		       ea		      nop
+     17  f0d7					      REPEND
+     18  f0d8		       ea		      nop
+     17  f0d8					      REPEND
+     18  f0d9		       ea		      nop
+     17  f0d9					      REPEND
+     18  f0da		       ea		      nop
+     19  f0db					      REPEND
+    248  f0db		       85 2b		      sta	HMCLR
+    249  f0dd		       a9 01		      lda	#1
+    250  f0df		       85 25		      sta	VDELP0	; vertical delay: enables the 6-digit retrigger
+    251  f0e1		       85 26		      sta	VDELP1
+    252  f0e3
+    253  f0e3		       a2 22		      ldx	#34	; remaining VBLANK lines (2 + 34 = 36)
+    254  f0e5				   VBlankLoop
+    255  f0e5		       85 02		      sta	WSYNC
+    256  f0e7		       ca		      dex
+    257  f0e8		       d0 fb		      bne	VBlankLoop
+    258  f0ea
+    259  f0ea		       a9 00		      lda	#0
+    260  f0ec		       85 01		      sta	VBLANK	; display on
+    261  f0ee
+    262  f0ee							;-------------------------------------------------------------
+    263  f0ee							; Visible kernel (192 lines = HUD 12 + 6 bands * 30)
+    264  f0ee							;-------------------------------------------------------------
+    265  f0ee							; --- HUD region: 6-digit score (12 WSYNC-exact lines) ---
+    266  f0ee		       a9 0c		      lda	#COL_BG
+    267  f0f0		       85 08		      sta	COLUPF	; HUD line 0: playfield invisible behind the score
+    268  f0f2		       20 00 f8 	      jsr	DrawDigits	; HUD lines 1-9 (DrawDigits ends on a WSYNC)
+    269  f0f5							; HUD line 10: restore game sprite state
+    270  f0f5		       a9 00		      lda	#0
+    271  f0f7		       85 25		      sta	VDELP0
+    272  f0f9		       85 26		      sta	VDELP1
+    273  f0fb		       85 05		      sta	NUSIZ1	; entity = single copy
+    274  f0fd		       a9 30		      lda	#$30
+    275  f0ff		       85 04		      sta	NUSIZ0	; missile 8px wide, player single copy
+    276  f101		       85 02		      sta	WSYNC
+    277  f103							; HUD line 11: re-place the player P0 near PLAYER_X
+      0  f103					      SLEEP	PLAYER_SLEEP
+      1  f103				   .CYCLES    SET	PLAYER_SLEEP
+      2  f103
+      3  f103				  -	      IF	.CYCLES < 2
+      4  f103				  -	      ECHO	"MACRO ERROR: 'SLEEP': Duration must be > 1"
+      5  f103				  -	      ERR
+      6  f103					      ENDIF
+      7  f103
+      8  f103					      IF	.CYCLES & 1
+      9  f103					      IFNCONST	NO_ILLEGAL_OPCODES
+     10  f103		       04 00		      nop	0
+     11  f105				  -	      ELSE
+     12  f105				  -	      bit	VSYNC
+     13  f105					      ENDIF
+     14  f105				   .CYCLES    SET	.CYCLES - 3
+     15  f105					      ENDIF
+     16  f105
+     17  f105					      REPEAT	.CYCLES / 2
+     18  f105		       ea		      nop
+     17  f105					      REPEND
+     18  f106		       ea		      nop
+     17  f106					      REPEND
+     18  f107		       ea		      nop
+     17  f107					      REPEND
+     18  f108		       ea		      nop
+     17  f108					      REPEND
+     18  f109		       ea		      nop
+     17  f109					      REPEND
+     18  f10a		       ea		      nop
+     17  f10a					      REPEND
+     18  f10b		       ea		      nop
+     17  f10b					      REPEND
+     18  f10c		       ea		      nop
+     17  f10c					      REPEND
+     18  f10d		       ea		      nop
+     17  f10d					      REPEND
+     18  f10e		       ea		      nop
+     19  f10f					      REPEND
+    279  f10f		       85 10		      sta	RESP0
+    280  f111		       a9 80		      lda	#$80
+    281  f113		       85 20		      sta	HMP0	; cycle-74 no-motion so band HMOVEs hold it
+    282  f115		       85 02		      sta	WSYNC
+    283  f117
+    284  f117							; Six platform bands
+    285  f117		       a9 06		      lda	#NUM_BANDS
+    286  f119		       85 83		      sta	bandCount
+    287  f11b				   BandLoop
+    288  f11b							; --- setbg line: background colour, player colour, missile off ---
+    289  f11b		       85 02		      sta	WSYNC
+    290  f11d		       a9 0c		      lda	#COL_BG
+    291  f11f		       85 08		      sta	COLUPF
+    292  f121		       a9 02		      lda	#COL_PLAYER
+    293  f123		       85 06		      sta	COLUP0
+    294  f125		       a9 00		      lda	#0
+    295  f127		       85 1d		      sta	ENAM0
+    296  f129
+    297  f129							; floor index = NUM_BANDS - bandCount, then position the gap missile
+    298  f129							; (Pos74M0 consumes exactly one scanline, HMOVE at cycle ~74)
+    299  f129		       a9 06		      lda	#NUM_BANDS
+    300  f12b		       38		      sec
+    301  f12c		       e5 83		      sbc	bandCount
+    302  f12e		       85 84		      sta	curFloor
+    303  f130		       a8		      tay
+    304  f131		       20 1d f2 	      jsr	Pos74M0	; position the gap missile (cycle-74)
+    305  f134		       a9 80		      lda	#$80
+    306  f136		       85 22		      sta	HMM0	; restore no-motion so the next HMOVE won't move it
+    307  f138		       a4 84		      ldy	curFloor
+    308  f13a		       20 3b f2 	      jsr	Pos74P1	; position the entity sprite GRP1 (cycle-74)
+    309  f13d		       a9 80		      lda	#$80
+    310  f13f		       85 21		      sta	HMP1	; restore no-motion
+    311  f141
+    312  f141							; pick player sprite (blank unless this is the player's band)
+    313  f141		       a5 83		      lda	bandCount
+    314  f143		       c5 81		      cmp	playerBandCount
+    315  f145		       d0 0b		      bne	.blankSpr
+      0  f147					      SET_POINTER	sprPtr, PlayerSprite
+      1  f147				   .POINTER   SET	sprPtr
+      2  f147				   .ADDRESS   SET	PlayerSprite
+      3  f147
+      4  f147		       a9 15		      LDA	#<.ADDRESS
+      5  f149		       85 87		      STA	.POINTER
+      6  f14b		       a9 f4		      LDA	#>.ADDRESS
+      7  f14d		       85 88		      STA	.POINTER+1
+      8  f14f
+    317  f14f		       4c 5a f1 	      jmp	.selEnt
+    318  f152				   .blankSpr
+      0  f152					      SET_POINTER	sprPtr, ZeroSprite
+      1  f152				   .POINTER   SET	sprPtr
+      2  f152				   .ADDRESS   SET	ZeroSprite
+      3  f152
+      4  f152		       a9 1d		      LDA	#<.ADDRESS
+      5  f154		       85 87		      STA	.POINTER
+      6  f156		       a9 f4		      LDA	#>.ADDRESS
+      7  f158		       85 88		      STA	.POINTER+1
+      8  f15a
+    320  f15a				   .selEnt
+    321  f15a							; entity sprite + colour for this floor's type
+    322  f15a		       a4 84		      ldy	curFloor
+    323  f15c		       b6 9d		      ldx	entType,y
+    324  f15e		       bd 35 f4 	      lda	EntColorTable,x
+    325  f161		       85 07		      sta	COLUP1
+    326  f163		       bd 38 f4 	      lda	EntSprLo,x
+    327  f166		       85 be		      sta	entPtr
+    328  f168		       a9 f4		      lda	#>ZeroSprite
+    329  f16a		       85 bf		      sta	entPtr+1
+    330  f16c
+    331  f16c		       a2 09		      ldx	#BAND_PAD
+    332  f16e				   .padLoop
+    333  f16e		       85 02		      sta	WSYNC
+    334  f170		       ca		      dex
+    335  f171		       d0 fb		      bne	.padLoop
+    336  f173
+    337  f173							; sprite window (8 lines): player (GRP0) + entity (GRP1), top row first
+    338  f173		       a0 07		      ldy	#SPRITE_H-1
+    339  f175				   .sprLoop
+    340  f175		       85 02		      sta	WSYNC
+    341  f177		       b1 87		      lda	(sprPtr),y
+    342  f179		       85 1b		      sta	GRP0
+    343  f17b		       b1 be		      lda	(entPtr),y
+    344  f17d		       85 1c		      sta	GRP1
+    345  f17f		       88		      dey
+    346  f180		       10 f3		      bpl	.sprLoop
+    347  f182							; GRP0/GRP1 are now 0 (sprite offsets 0-1 are blank)
+    348  f182
+    349  f182							; prepare platform rows: missile = background (so it shows as a gap),
+    350  f182							; enable the gap if this floor has one (floor 5 has none).
+    351  f182		       a9 0c		      lda	#COL_BG
+    352  f184		       85 06		      sta	COLUP0
+    353  f186		       a4 84		      ldy	curFloor
+    354  f188		       b9 f9 f3 	      lda	GapOnTable,y
+    355  f18b		       85 1d		      sta	ENAM0
+    356  f18d
+    357  f18d							; green top rows
+    358  f18d		       85 02		      sta	WSYNC
+    359  f18f		       a9 c8		      lda	#COL_GREEN
+    360  f191		       85 08		      sta	COLUPF
+    361  f193		       a2 03		      ldx	#BAND_GREEN-1
+    362  f195				   .grnLoop
+    363  f195		       85 02		      sta	WSYNC
+    364  f197		       ca		      dex
+    365  f198		       d0 fb		      bne	.grnLoop
+    366  f19a
+    367  f19a							; grey underside rows
+    368  f19a		       85 02		      sta	WSYNC
+    369  f19c		       a9 06		      lda	#COL_GREY
+    370  f19e		       85 08		      sta	COLUPF
+    371  f1a0		       a2 03		      ldx	#BAND_GREY-1
+    372  f1a2				   .gryLoop
+    373  f1a2		       85 02		      sta	WSYNC
+    374  f1a4		       ca		      dex
+    375  f1a5		       d0 fb		      bne	.gryLoop
+    376  f1a7
+    377  f1a7		       c6 83		      dec	bandCount
+    378  f1a9		       f0 03		      beq	.bandsDone
+    379  f1ab		       4c 1b f1 	      jmp	BandLoop	; (band body > 128 bytes, so jmp not bne)
+    380  f1ae				   .bandsDone
+    381  f1ae
+    382  f1ae							; turn the missile off before leaving the visible area
+    383  f1ae		       a9 00		      lda	#0
+    384  f1b0		       85 1d		      sta	ENAM0
+    385  f1b2
+    386  f1b2							;-------------------------------------------------------------
+    387  f1b2							; Overscan (~30 lines via timer) - game logic + positioning precompute
+    388  f1b2							;-------------------------------------------------------------
+    389  f1b2		       a9 02		      lda	#2
+    390  f1b4		       85 01		      sta	VBLANK
+    391  f1b6		       a9 23		      lda	#35
+    392  f1b8		       8d 96 02 	      sta	TIM64T
+    393  f1bb
+    394  f1bb		       a5 c1		      lda	gameState
+    395  f1bd		       d0 10		      bne	.gsFrozen
+    396  f1bf							; CheckCollision must run BEFORE input/update: CXPPMM reflects the
+    397  f1bf							; frame just rendered, where playerFloor still matches.
+    398  f1bf		       20 f4 f2 	      jsr	CheckCollision
+    399  f1c2		       a5 c1		      lda	gameState
+    400  f1c4		       d0 0c		      bne	.gsAfter	; just died this frame -> skip further updates
+    401  f1c6		       20 63 f2 	      jsr	ReadInput
+    402  f1c9		       20 78 f2 	      jsr	UpdateWorld
+    403  f1cc		       4c d2 f1 	      jmp	.gsAfter
+    404  f1cf				   .gsFrozen
+    405  f1cf		       20 49 f3 	      jsr	CheckRestart	; world frozen; fresh fire press restarts
+    406  f1d2				   .gsAfter
+    407  f1d2							; game-over text cycle: 240-frame period (120 GAMEOVER + 120 HInnnn)
+    408  f1d2		       e6 c7		      inc	goCnt
+    409  f1d4		       a5 c7		      lda	goCnt
+    410  f1d6		       c9 f0		      cmp	#240
+    411  f1d8		       90 04		      bcc	.goCntOk
+    412  f1da		       a9 00		      lda	#0
+    413  f1dc		       85 c7		      sta	goCnt
+    414  f1de				   .goCntOk
+    415  f1de
+    416  f1de							; Precompute each gap's quickPos + strobe-table entry (in overscan),
+    417  f1de							; so the visible kernel positions in one fixed-time scanline.
+    418  f1de		       a2 05		      ldx	#5
+    419  f1e0				   .precomp
+    420  f1e0							; gap (missile 0)
+    421  f1e0		       b5 8b		      lda	gapX,x
+    422  f1e2		       86 86		      stx	tempFloor
+    423  f1e4		       20 5b f3 	      jsr	CalcQuickPos	; A = quickPos (clobbers Y, tempOne)
+    424  f1e7		       a6 86		      ldx	tempFloor
+    425  f1e9		       95 91		      sta	gapQuick,x
+    426  f1eb		       29 0f		      and	#$0F	; low nibble = delay count = jump-table index
+    427  f1ed		       a8		      tay
+    428  f1ee		       b9 25 f5 	      lda	JumpTabM0,y
+    429  f1f1		       95 97		      sta	posJmpLo,x
+    430  f1f3							; entity (GRP1) - PosTblP1 mirrors PosTblM0, so JumpTabM0 low bytes apply
+    431  f1f3		       b5 a3		      lda	entX,x
+    432  f1f5		       86 86		      stx	tempFloor
+    433  f1f7		       20 5b f3 	      jsr	CalcQuickPos
+    434  f1fa		       a6 86		      ldx	tempFloor
+    435  f1fc		       95 b2		      sta	entQuick,x
+    436  f1fe		       29 0f		      and	#$0F
+    437  f200		       a8		      tay
+    438  f201		       b9 25 f5 	      lda	JumpTabM0,y
+    439  f204		       95 b8		      sta	entJmpLo,x
+    440  f206		       ca		      dex
+    441  f207		       10 d7		      bpl	.precomp
+    442  f209
+    443  f209							; playerBandCount = NUM_BANDS - playerFloor (for next frame's kernel)
+    444  f209		       a9 06		      lda	#NUM_BANDS
+    445  f20b		       38		      sec
+    446  f20c		       e5 80		      sbc	playerFloor
+    447  f20e		       85 81		      sta	playerBandCount
+    448  f210
+    449  f210							; build the score's digit pointers for next frame's HUD
+    450  f210		       20 79 f3 	      jsr	GetDigitPtrs
+    451  f213
+    452  f213				   WaitOverscan
+    453  f213		       ad 84 02 	      lda	INTIM
+    454  f216		       d0 fb		      bne	WaitOverscan
+    455  f218		       85 02		      sta	WSYNC
+    456  f21a
+    457  f21a		       4c 92 f0 	      jmp	NextFrame
+    458  f21d
+    459  f21d							;-------------------------------------------------------------
+    460  f21d							; Pos74M0 - position Missile 0 at gap[curFloor] in one scanline.
+    461  f21d							;   IN: Y = curFloor. Uses precomputed gapQuick / posJmpLo.
+    462  f21d							;   Cycle-74 HMOVE: clean edge-to-edge positioning, no comb.
+    463  f21d							;-------------------------------------------------------------
+    464  f21d				   Pos74M0
+    465  f21d		       b9 91 00 	      lda	gapQuick,y
+    466  f220		       85 22		      sta	HMM0	; high nibble = fine motion (low nibble ignored)
+    467  f222		       29 0f		      and	#$0F
+    468  f224		       aa		      tax		; X = delay count
+    469  f225		       b9 97 00 	      lda	posJmpLo,y
+    470  f228		       85 89		      sta	posJmp
+    471  f22a		       a9 f5		      lda	#>PosTblM0
+    472  f22c		       85 8a		      sta	posJmp+1
+    473  f22e		       85 02		      sta	WSYNC
+    474  f230							; 9 cycles of dead time (matches hmove74 calibration)
+    475  f230		       ea		      nop		; 2
+    476  f231		       ea		      nop		; 2
+    477  f232		       ea		      nop		; 2
+    478  f233		       04 ea		      .byte.b	$04,$EA	; NOP zp (3 cycles)
+    479  f235				   .wait74
+    480  f235		       ca		      dex
+    481  f236		       10 fd		      bpl	.wait74
+    482  f238		       6c 89 00 	      jmp	(posJmp)	; into PosTblM0; strobes RESM0, HMOVE @ ~74, rts
+    483  f23b
+    484  f23b							;-------------------------------------------------------------
+    485  f23b							; Pos74P1 - position the entity sprite (GRP1) at ent[curFloor].
+    486  f23b							;   IN: Y = curFloor. Uses entQuick / entJmpLo. Same technique as
+    487  f23b							;   Pos74M0, but strobes RESP1 (PosTblP1) and uses HMP1.
+    488  f23b							;-------------------------------------------------------------
+    489  f23b				   Pos74P1
+    490  f23b		       b9 b2 00 	      lda	entQuick,y
+    491  f23e		       85 21		      sta	HMP1
+    492  f240		       29 0f		      and	#$0F
+    493  f242		       aa		      tax
+    494  f243		       b9 b8 00 	      lda	entJmpLo,y
+    495  f246		       85 89		      sta	posJmp
+    496  f248		       a9 f6		      lda	#>PosTblP1
+    497  f24a		       85 8a		      sta	posJmp+1
+    498  f24c		       85 02		      sta	WSYNC
+    499  f24e		       ea		      nop
+    500  f24f		       ea		      nop
+    501  f250		       ea		      nop
+    502  f251		       04 ea		      .byte.b	$04,$EA
+    503  f253				   .wait74p
+    504  f253		       ca		      dex
+    505  f254		       10 fd		      bpl	.wait74p
+    506  f256		       6c 89 00 	      jmp	(posJmp)	; into PosTblP1; strobes RESP1, HMOVE @ ~74, rts
+    507  f259
+    508  f259							;-------------------------------------------------------------
+    509  f259							; Rng - 8-bit LFSR. Advances and returns the new value in A.
+    510  f259							;-------------------------------------------------------------
+    511  f259				   Rng
+    512  f259		       a5 c0		      lda	rng
+    513  f25b		       4a		      lsr
+    514  f25c		       90 02		      bcc	.rngNoFb
+    515  f25e		       49 b4		      eor	#$B4
+    516  f260				   .rngNoFb
+    517  f260		       85 c0		      sta	rng
+    518  f262		       60		      rts
+    519  f263
+    520  f263							;-------------------------------------------------------------
+    521  f263							; ReadInput - one-button jump-up (rising edge of fire button)
+    522  f263							;-------------------------------------------------------------
+    523  f263				   ReadInput
+    524  f263		       a2 00		      ldx	#0	; assume not pressed
+    525  f265		       a5 0c		      lda	INPT4
+    526  f267		       30 0c		      bmi	.store	; bit7 set => not pressed
+    527  f269		       a2 01		      ldx	#1	; pressed
+    528  f26b		       a5 82		      lda	btnPrev
+    529  f26d		       d0 06		      bne	.store	; held => no new press
+    530  f26f		       a5 80		      lda	playerFloor
+    531  f271		       f0 02		      beq	.store	; already at top tier
+    532  f273		       c6 80		      dec	playerFloor	; jump up one tier
+    533  f275				   .store
+    534  f275		       86 82		      stx	btnPrev
+    535  f277		       60		      rts
+    536  f278
+    537  f278							;-------------------------------------------------------------
+    538  f278							; UpdateWorld - scroll gaps left, wrap, and fall-through check
+    539  f278							;-------------------------------------------------------------
+    540  f278				   UpdateWorld
+    541  f278							; advance the PRNG once per frame so respawns stay varied
+    542  f278		       20 59 f2 	      jsr	Rng
+    543  f27b
+    544  f27b							; Sub-pixel speed: accumulate the fractional speed; the carry is an
+    545  f27b							; extra whole pixel this frame, so the scroll step is 1 or 2 px.
+    546  f27b							; (scrollSpeed ramps with the score; see CheckCollision.)
+    547  f27b		       a5 b0		      lda	scrollFrac
+    548  f27d		       18		      clc
+    549  f27e		       65 af		      adc	scrollSpeed	; accumulate 1/32-px units
+    550  f280		       aa		      tax		; X = total (whole.frac)
+    551  f281		       29 1f		      and	#$1F
+    552  f283		       85 b0		      sta	scrollFrac	; carry the fraction (low 5 bits) to next frame
+    553  f285		       8a		      txa
+    554  f286		       4a		      lsr
+    555  f287		       4a		      lsr
+    556  f288		       4a		      lsr
+    557  f289		       4a		      lsr
+    558  f28a		       4a		      lsr		; whole pixels this frame = total >> 5
+    559  f28b		       85 b1		      sta	scrollStep
+    560  f28d
+    561  f28d				   .scrollStep
+    562  f28d							; --- scroll gaps (floors 0..4 ; floor 5 has none) ---
+    563  f28d		       a2 04		      ldx	#4
+    564  f28f				   .gapLoop
+    565  f28f		       d6 8b		      dec	gapX,x
+    566  f291		       d0 04		      bne	.gapNext	; reached 0 => wrap to the right
+    567  f293		       a9 9f		      lda	#GAP_WRAP
+    568  f295		       95 8b		      sta	gapX,x
+    569  f297				   .gapNext
+    570  f297		       ca		      dex
+    571  f298		       10 f5		      bpl	.gapLoop
+    572  f29a
+    573  f29a							; --- entities: scroll, hide for a random delay, re-enter ---
+    574  f29a		       a2 05		      ldx	#5
+    575  f29c				   .entLoop
+    576  f29c		       b5 9d		      lda	entType,x
+    577  f29e		       f0 0e		      beq	.entWaiting	; type 0 = hidden, waiting to respawn
+    578  f2a0		       d6 a3		      dec	entX,x
+    579  f2a2		       d0 2a		      bne	.entNext
+    580  f2a4		       a9 00		      lda	#0
+    581  f2a6		       95 9d		      sta	entType,x	; reached the edge -> hide + arm a respawn delay
+    582  f2a8		       20 e9 f2 	      jsr	SetRespawnDelay
+    583  f2ab		       4c ce f2 	      jmp	.entNext
+    584  f2ae				   .entWaiting
+    585  f2ae		       d6 a9		      dec	entDelay,x
+    586  f2b0		       d0 1c		      bne	.entNext
+    587  f2b2							; delay elapsed -> respawn, but not over this floor's gap. If the gap
+    588  f2b2							; is in the spawn zone, wait a little and recheck (they scroll at the
+    589  f2b2							; same speed, so clearing them at spawn keeps them apart all pass).
+    590  f2b2		       b5 8b		      lda	gapX,x
+    591  f2b4		       c9 91		      cmp	#GAP_SPAWN_CLEAR
+    592  f2b6		       90 07		      bcc	.doSpawn
+    593  f2b8		       a9 10		      lda	#ENT_DEFER
+    594  f2ba		       95 a9		      sta	entDelay,x
+    595  f2bc		       4c ce f2 	      jmp	.entNext
+    596  f2bf				   .doSpawn
+    597  f2bf		       20 59 f2 	      jsr	Rng
+    598  f2c2		       29 03		      and	#3
+    599  f2c4		       a8		      tay
+    600  f2c5		       b9 3b f4 	      lda	EntTypeRoll,y
+    601  f2c8		       95 9d		      sta	entType,x
+    602  f2ca		       a9 98		      lda	#ENT_WRAP
+    603  f2cc		       95 a3		      sta	entX,x
+    604  f2ce				   .entNext
+    605  f2ce		       ca		      dex
+    606  f2cf		       10 cb		      bpl	.entLoop
+    607  f2d1
+    608  f2d1		       c6 b1		      dec	scrollStep
+    609  f2d3		       d0 b8		      bne	.scrollStep	; run the scroll 1 or 2 times this frame
+    610  f2d5
+    611  f2d5							; --- fall-through (once per frame): gap under the player? ---
+    612  f2d5		       a5 80		      lda	playerFloor
+    613  f2d7		       c9 05		      cmp	#5
+    614  f2d9		       b0 0d		      bcs	.noFall	; bottom tier is solid/safe
+    615  f2db		       aa		      tax
+    616  f2dc		       b5 8b		      lda	gapX,x
+    617  f2de		       c9 13		      cmp	#FALL_HI+1
+    618  f2e0		       b0 06		      bcs	.noFall	; gap is right of the player
+    619  f2e2		       c9 0e		      cmp	#FALL_LO
+    620  f2e4		       90 02		      bcc	.noFall	; gap is left of the player
+    621  f2e6		       e6 80		      inc	playerFloor	; fall down one tier
+    622  f2e8				   .noFall
+    623  f2e8		       60		      rts
+    624  f2e9
+    625  f2e9							;-------------------------------------------------------------
+    626  f2e9							; SetRespawnDelay - arm entDelay[X] with a randomised off-screen wait.
+    627  f2e9							;-------------------------------------------------------------
+    628  f2e9				   SetRespawnDelay
+    629  f2e9		       20 59 f2 	      jsr	Rng
+    630  f2ec		       29 7f		      and	#ENT_DELAY_MASK
+    631  f2ee		       18		      clc
+    632  f2ef		       69 20		      adc	#ENT_DELAY_MIN
+    633  f2f1		       95 a9		      sta	entDelay,x
+    634  f2f3		       60		      rts
+    635  f2f4
+    636  f2f4							;-------------------------------------------------------------
+    637  f2f4							; CheckCollision - player vs the entity on the player's floor.
+    638  f2f4							;   cone  -> +1 to the BCD score, entity consumed.
+    639  f2f4							;   skull -> game over (freeze + red background).
+    640  f2f4							;-------------------------------------------------------------
+    641  f2f4				   CheckCollision
+    642  f2f4		       a5 07		      lda	CXPPMM
+    643  f2f6		       10 50		      bpl	.ccDone	; bit7 (P0-P1) clear -> player didn't touch an entity
+    644  f2f8							; player's GRP0 only draws on its own floor, so a P0-P1 hit is the
+    645  f2f8							; entity on playerFloor. Act on its type.
+    646  f2f8		       a6 80		      ldx	playerFloor
+    647  f2fa		       b5 9d		      lda	entType,x
+    648  f2fc		       f0 4a		      beq	.ccDone	; guard: no entity here
+    649  f2fe		       c9 02		      cmp	#ENT_SKULL
+    650  f300		       f0 28		      beq	.ccSkull
+    651  f302							; cone collected: +1 (BCD). GetDigitPtrs shows scoreBCD+2 as the
+    652  f302							; leftmost (most-significant) digits, so the +1 must land on the
+    653  f302							; least-significant byte scoreBCD+0 and carry up toward +2.
+    654  f302		       f8		      sed
+    655  f303		       a5 c2		      lda	scoreBCD+0
+    656  f305		       18		      clc
+    657  f306		       69 01		      adc	#1
+    658  f308		       85 c2		      sta	scoreBCD+0
+    659  f30a		       a5 c3		      lda	scoreBCD+1
+    660  f30c		       69 00		      adc	#0
+    661  f30e		       85 c3		      sta	scoreBCD+1
+    662  f310		       a5 c4		      lda	scoreBCD+2
+    663  f312		       69 00		      adc	#0
+    664  f314		       85 c4		      sta	scoreBCD+2
+    665  f316		       d8		      cld
+    666  f317		       a9 00		      lda	#0
+    667  f319		       95 9d		      sta	entType,x	; cone consumed
+    668  f31b		       20 e9 f2 	      jsr	SetRespawnDelay	; wait before a new entity enters this floor
+    669  f31e							; ramp the scroll speed (sub-pixel speed-up with score)
+    670  f31e		       a5 af		      lda	scrollSpeed
+    671  f320		       c9 80		      cmp	#SPEED_MAX
+    672  f322		       b0 24		      bcs	.ccDone	; already at max
+    673  f324		       18		      clc
+    674  f325		       69 01		      adc	#SPEED_INC
+    675  f327		       85 af		      sta	scrollSpeed
+    676  f329		       60		      rts
+    677  f32a				   .ccSkull
+    678  f32a		       a9 01		      lda	#1
+    679  f32c		       85 c1		      sta	gameState
+    680  f32e		       a9 42		      lda	#COL_GAMEOVER
+    681  f330		       85 09		      sta	COLUBK	; red tint; NewGame restores COL_BG on restart
+    682  f332							; high score = max(hiScore, score) over the low 4 digits
+    683  f332		       a5 c3		      lda	scoreBCD+1
+    684  f334		       c5 c6		      cmp	hiScore+1
+    685  f336		       90 10		      bcc	.ccDone	; score's high pair < hiScore's
+    686  f338		       d0 06		      bne	.ccNewHi	; score's high pair > hiScore's
+    687  f33a		       a5 c2		      lda	scoreBCD+0
+    688  f33c		       c5 c5		      cmp	hiScore+0
+    689  f33e		       90 08		      bcc	.ccDone	; equal high pair, low pair lower
+    690  f340				   .ccNewHi
+    691  f340		       a5 c2		      lda	scoreBCD+0
+    692  f342		       85 c5		      sta	hiScore+0
+    693  f344		       a5 c3		      lda	scoreBCD+1
+    694  f346		       85 c6		      sta	hiScore+1
+    695  f348				   .ccDone
+    696  f348		       60		      rts
+    697  f349
+    698  f349							;-------------------------------------------------------------
+    699  f349							; CheckRestart - during game over, a fresh fire press restarts.
+    700  f349							;-------------------------------------------------------------
+    701  f349				   CheckRestart
+    702  f349		       a2 00		      ldx	#0
+    703  f34b		       a5 0c		      lda	INPT4
+    704  f34d		       30 09		      bmi	.crStore	; not pressed
+    705  f34f		       a2 01		      ldx	#1
+    706  f351		       a5 82		      lda	btnPrev
+    707  f353		       d0 03		      bne	.crStore	; held since last frame -> no edge
+    708  f355		       4c 2b f0 	      jmp	NewGame	; fresh press -> restart (keeps hiScore)
+    709  f358				   .crStore
+    710  f358		       86 82		      stx	btnPrev
+    711  f35a		       60		      rts
+    712  f35b
+    713  f35b							;-------------------------------------------------------------
+    714  f35b							; CalcQuickPos - A = x (0..159) -> A = quickPos
+    715  f35b							;   quickPos = (HMOVE fine nibble << 4) | delay count (low nibble).
+    716  f35b							;   Fast divide-by-15 + tables, from examples/hmove74.asm. Uses Y, tempOne.
+    717  f35b							;-------------------------------------------------------------
+    718  f35b				   CalcQuickPos
+    719  f35b		       85 85		      sta	tempOne
+    720  f35d		       4a		      lsr
+    721  f35e		       69 04		      adc	#4
+    722  f360		       4a		      lsr
+    723  f361		       4a		      lsr
+    724  f362		       4a		      lsr
+    725  f363		       65 85		      adc	tempOne
+    726  f365		       6a		      ror
+    727  f366		       4a		      lsr
+    728  f367		       4a		      lsr
+    729  f368		       4a		      lsr
+    730  f369		       a8		      tay		; Y = x / 15
+    731  f36a		       b9 ff f3 	      lda	MultTab,y
+    732  f36d		       38		      sec
+    733  f36e		       e5 85		      sbc	tempOne
+    734  f370		       0a		      asl
+    735  f371		       0a		      asl
+    736  f372		       0a		      asl
+    737  f373		       0a		      asl
+    738  f374		       18		      clc
+    739  f375		       79 0a f4 	      adc	DelayTab,y
+    740  f378		       60		      rts
+    741  f379
+    742  f379							;-------------------------------------------------------------
+    743  f379							; GetDigitPtrs - build the 6 font pointers (Digit0..Digit5) from the
+    744  f379							;   3-byte BCD score. Each nibble * 8 = offset into FontTable.
+    745  f379							;   (After examples/6-digit-score.asm.)
+    746  f379							;-------------------------------------------------------------
+    747  f379				   GetDigitPtrs
+    748  f379		       a5 c1		      lda	gameState
+    749  f37b		       d0 26		      bne	.goText
+    750  f37d							; --- playing: score "__nnnn" (blank leftmost two, low 4 BCD digits) ---
+    751  f37d		       a9 50		      lda	#<BlankGlyph
+    752  f37f		       85 c8		      sta	Digit0+0
+    753  f381		       85 ca		      sta	Digit0+2
+    754  f383		       a2 04		      ldx	#4
+    755  f385		       a0 01		      ldy	#1
+    756  f387				   .gdpLoop
+    757  f387		       b9 c2 00 	      lda	scoreBCD,y
+    758  f38a		       29 f0		      and	#$f0	; high nibble * 16
+    759  f38c		       4a		      lsr		; -> * 8
+    760  f38d		       95 c8		      sta	Digit0,x
+    761  f38f		       e8		      inx
+    762  f390		       e8		      inx
+    763  f391		       b9 c2 00 	      lda	scoreBCD,y
+    764  f394		       29 0f		      and	#$0f	; low nibble
+    765  f396		       0a		      asl
+    766  f397		       0a		      asl
+    767  f398		       0a		      asl		; * 8
+    768  f399		       95 c8		      sta	Digit0,x
+    769  f39b		       e8		      inx
+    770  f39c		       e8		      inx
+    771  f39d		       88		      dey
+    772  f39e		       10 e7		      bpl	.gdpLoop
+    773  f3a0		       4c ea f3 	      jmp	.setHi
+    774  f3a3				   .goText
+    775  f3a3							; --- game over: alternate "GAMEOVER" and "HInnnn" every 120 frames ---
+    776  f3a3		       a5 c7		      lda	goCnt
+    777  f3a5		       c9 78		      cmp	#120
+    778  f3a7		       b0 1c		      bcs	.goHi	; goCnt 120-239 -> HInnnn
+    779  f3a9							; "GAMEOVER" packed across the 6 glyph slots
+    780  f3a9		       a9 58		      lda	#<GameOverGlyphs
+    781  f3ab		       85 c8		      sta	Digit0+0
+    782  f3ad		       18		      clc
+    783  f3ae		       69 08		      adc	#8
+    784  f3b0		       85 ca		      sta	Digit0+2
+    785  f3b2		       69 08		      adc	#8
+    786  f3b4		       85 cc		      sta	Digit0+4
+    787  f3b6		       69 08		      adc	#8
+    788  f3b8		       85 ce		      sta	Digit0+6
+    789  f3ba		       69 08		      adc	#8
+    790  f3bc		       85 d0		      sta	Digit0+8
+    791  f3be		       69 08		      adc	#8
+    792  f3c0		       85 d2		      sta	Digit0+10
+    793  f3c2		       4c ea f3 	      jmp	.setHi
+    794  f3c5				   .goHi
+    795  f3c5							; "HI" + the 4-digit high score
+    796  f3c5		       a9 88		      lda	#<LetterH
+    797  f3c7		       85 c8		      sta	Digit0+0
+    798  f3c9		       a9 90		      lda	#<LetterI
+    799  f3cb		       85 ca		      sta	Digit0+2
+    800  f3cd		       a2 04		      ldx	#4
+    801  f3cf		       a0 01		      ldy	#1
+    802  f3d1				   .goHiLoop
+    803  f3d1		       b9 c5 00 	      lda	hiScore,y
+    804  f3d4		       29 f0		      and	#$f0
+    805  f3d6		       4a		      lsr
+    806  f3d7		       95 c8		      sta	Digit0,x
+    807  f3d9		       e8		      inx
+    808  f3da		       e8		      inx
+    809  f3db		       b9 c5 00 	      lda	hiScore,y
+    810  f3de		       29 0f		      and	#$0f
+    811  f3e0		       0a		      asl
+    812  f3e1		       0a		      asl
+    813  f3e2		       0a		      asl
+    814  f3e3		       95 c8		      sta	Digit0,x
+    815  f3e5		       e8		      inx
+    816  f3e6		       e8		      inx
+    817  f3e7		       88		      dey
+    818  f3e8		       10 e7		      bpl	.goHiLoop
+    819  f3ea				   .setHi
+    820  f3ea							; every glyph lives in the FontTable page, so all hi bytes are the same
+    821  f3ea		       a9 f7		      lda	#>FontTable
+    822  f3ec		       85 c9		      sta	Digit0+1
+    823  f3ee		       85 cb		      sta	Digit0+3
+    824  f3f0		       85 cd		      sta	Digit0+5
+    825  f3f2		       85 cf		      sta	Digit0+7
+    826  f3f4		       85 d1		      sta	Digit0+9
+    827  f3f6		       85 d3		      sta	Digit0+11
+    828  f3f8		       60		      rts
+    829  f3f9
+    830  f3f9							;-------------------------------------------------------------
+    831  f3f9							; Tables
+    832  f3f9							;-------------------------------------------------------------
+    833  f3f9							; ENAM0 enable byte per floor (bit1 = enable). Floor 5 = no gap.
+    834  f3f9				   GapOnTable
+    835  f3f9		       02 02 02 02*	      .byte.b	2,2,2,2,2,0
+    836  f3ff
+    837  f3ff							; quickPos divide tables (from examples/hmove74.asm)
+    838  f3ff				   MultTab
+    839  f3ff		       e7 f6 05 14*	      .byte.b	-25,-10,5,20,35,50,65,80,95,110,-21
+    840  f40a				   DelayTab
+    841  f40a		       01 02 03 04*	      .byte.b	1,2,3,4,5,6,7,8,9,10,0
+    842  f415
+    843  f415							; Player sprite (stored bottom row first; index 7 = top row)
+    844  f415				   PlayerSprite
+    845  f415		       00		      .byte.b	%00000000	; offset 0 (bottom)
+    846  f416		       00		      .byte.b	%00000000
+    847  f417		       48		      .byte.b	%01001000	;  l  l
+    848  f418		       48		      .byte.b	%01001000	;  l  l
+    849  f419		       fc		      .byte.b	%11111100	; llllll
+    850  f41a		       d4		      .byte.b	%11010100	; ll l l
+    851  f41b		       d4		      .byte.b	%11010100	; ll l l
+    852  f41c		       fc		      .byte.b	%11111100	; llllll  (offset 7, top)
+    853  f41d
+    854  f41d				   ZeroSprite
+    855  f41d		       00 00 00 00*	      .byte.b	0,0,0,0,0,0,0,0
+    856  f425
+    857  f425							; Cone (gold) - narrow top widening to a base. Bottom row first.
+    858  f425							; Bit 7 (leftmost column) is always blank so the entity is invisible at
+    859  f425							; the wrap position (entX=159), hiding the respawn type change.
+    860  f425				   ConeSprite
+    861  f425		       00		      .byte.b	%00000000
+    862  f426		       00		      .byte.b	%00000000
+    863  f427		       7e		      .byte.b	%01111110	; wide base
+    864  f428		       7e		      .byte.b	%01111110
+    865  f429		       3c		      .byte.b	%00111100
+    866  f42a		       3c		      .byte.b	%00111100
+    867  f42b		       18		      .byte.b	%00011000
+    868  f42c		       18		      .byte.b	%00011000	; point (top)
+    869  f42d
+    870  f42d							; Skull (red) - rounded blob with an eye gap. Bottom row first.
+    871  f42d				   SkullSprite
+    872  f42d		       00		      .byte.b	%00000000
+    873  f42e		       00		      .byte.b	%00000000
+    874  f42f		       18		      .byte.b	%00011000
+    875  f430		       3c		      .byte.b	%00111100
+    876  f431		       24		      .byte.b	%00100100	; eyes
+    877  f432		       3c		      .byte.b	%00111100
+    878  f433		       3c		      .byte.b	%00111100
+    879  f434		       18		      .byte.b	%00011000	; top
+    880  f435
+    881  f435							; Entity lookups indexed by entType (0 none, 1 cone, 2 skull)
+    882  f435				   EntColorTable
+    883  f435		       00 1e 44 	      .byte.b	$00, COL_CONE, COL_SKULL
+    884  f438				   EntSprLo
+    885  f438		       1d 25 2d 	      .byte.b	<ZeroSprite, <ConeSprite, <SkullSprite
+    886  f43b							; Respawn type roll, indexed by (rng & 3): 50/50 cone / skull
+    887  f43b				   EntTypeRoll
+    888  f43b		       01 01 02 02	      .byte.b	ENT_CONE, ENT_CONE, ENT_SKULL, ENT_SKULL
+    889  f43f
+    890  f43f							;-------------------------------------------------------------
+    891  f43f							; Missile-0 cycle-74 strobe table (must stay within one page).
+    892  f43f							;   Each entry strobes RESM0; the $1C (NOP abs) swallows the next
+    893  f43f							;   entry's `sta RESM0`, so only the jumped-to strobe executes, then
+    894  f43f							;   execution falls through to `sta HMOVE` at cycle ~74.
+    895  f43f							;-------------------------------------------------------------
+    896  f500					      org	$f500
+    897  f500				   PosTblM0
+    898  f500				   pM0_3
+    899  f500		       85 12		      sta	RESM0
+    900  f502		       1c		      .byte.b	$1C
+    901  f503				   pM0_15
+    902  f503		       85 12		      sta	RESM0
+    903  f505		       1c		      .byte.b	$1C
+    904  f506				   pM0_30
+    905  f506		       85 12		      sta	RESM0
+    906  f508		       1c		      .byte.b	$1C
+    907  f509				   pM0_45
+    908  f509		       85 12		      sta	RESM0
+    909  f50b		       1c		      .byte.b	$1C
+    910  f50c				   pM0_60
+    911  f50c		       85 12		      sta	RESM0
+    912  f50e		       1c		      .byte.b	$1C
+    913  f50f				   pM0_75
+    914  f50f		       85 12		      sta	RESM0
+    915  f511		       1c		      .byte.b	$1C
+    916  f512				   pM0_90
+    917  f512		       85 12		      sta	RESM0
+    918  f514		       1c		      .byte.b	$1C
+    919  f515				   pM0_105
+    920  f515		       85 12		      sta	RESM0
+    921  f517		       1c		      .byte.b	$1C
+    922  f518				   pM0_120
+    923  f518		       85 12		      sta	RESM0
+    924  f51a		       1c		      .byte.b	$1C
+    925  f51b				   pM0_135
+    926  f51b		       85 12		      sta	RESM0
+    927  f51d		       1c		      .byte.b	$1C
+    928  f51e				   pM0_150
+    929  f51e		       85 12		      sta	RESM0
+    930  f520		       85 2a		      sta	HMOVE
+    931  f522		       85 02		      sta	WSYNC	; re-align: the positioning line ends here so the
+    932  f524		       60		      rts		; band keeps an exact, identical scanline budget
+    933  f525
+    934  f525				   JumpTabM0
+    935  f525		       00 03 06 09*	      .byte.b	<pM0_3, <pM0_15, <pM0_30, <pM0_45, <pM0_60, <pM0_75
+    936  f52b		       12 15 18 1b*	      .byte.b	<pM0_90, <pM0_105, <pM0_120, <pM0_135, <pM0_150
+    937  f530
+    938  f530							;-------------------------------------------------------------
+    939  f530							; Player-1 (GRP1) cycle-74 strobe table. Placed at $f600 so its
+    940  f530							; entries share the SAME low bytes as PosTblM0 ($f500) -> JumpTabM0
+    941  f530							; works for both; Pos74P1 just uses the $f6 high byte.
+    942  f530							;-------------------------------------------------------------
+    943  f600					      org	$f600
+    944  f600				   PosTblP1
+    945  f600				   pP1_3
+    946  f600		       85 11		      sta	RESP1
+    947  f602		       1c		      .byte.b	$1C
+    948  f603				   pP1_15
+    949  f603		       85 11		      sta	RESP1
+    950  f605		       1c		      .byte.b	$1C
+    951  f606				   pP1_30
+    952  f606		       85 11		      sta	RESP1
+    953  f608		       1c		      .byte.b	$1C
+    954  f609				   pP1_45
+    955  f609		       85 11		      sta	RESP1
+    956  f60b		       1c		      .byte.b	$1C
+    957  f60c				   pP1_60
+    958  f60c		       85 11		      sta	RESP1
+    959  f60e		       1c		      .byte.b	$1C
+    960  f60f				   pP1_75
+    961  f60f		       85 11		      sta	RESP1
+    962  f611		       1c		      .byte.b	$1C
+    963  f612				   pP1_90
+    964  f612		       85 11		      sta	RESP1
+    965  f614		       1c		      .byte.b	$1C
+    966  f615				   pP1_105
+    967  f615		       85 11		      sta	RESP1
+    968  f617		       1c		      .byte.b	$1C
+    969  f618				   pP1_120
+    970  f618		       85 11		      sta	RESP1
+    971  f61a		       1c		      .byte.b	$1C
+    972  f61b				   pP1_135
+    973  f61b		       85 11		      sta	RESP1
+    974  f61d		       1c		      .byte.b	$1C
+    975  f61e				   pP1_150
+    976  f61e		       85 11		      sta	RESP1
+    977  f620		       85 2a		      sta	HMOVE
+    978  f622		       85 02		      sta	WSYNC
+    979  f624		       60		      rts
+    980  f625
+    981  f625							;-------------------------------------------------------------
+    982  f625							; FontTable - 8x8 bitmaps for digits 0-9 (page-aligned so each
+    983  f625							; digit's 8 bytes never cross a page). From examples/6-digit-score.asm.
+    984  f625							;-------------------------------------------------------------
+    985  f700		       00 00 00 00*	      align	$100
+    986  f700				   FontTable
+    987  f700		       00 1c 32 63*	      .byte.b	$00,$1c,$32,$63,$63,$63,$26,$1c
+    988  f708		       00 3f 0c 0c*	      .byte.b	$00,$3f,$0c,$0c,$0c,$0c,$1c,$0c
+    989  f710		       00 7f 70 3c*	      .byte.b	$00,$7f,$70,$3c,$1e,$07,$63,$3e
+    990  f718		       00 3e 63 03*	      .byte.b	$00,$3e,$63,$03,$1e,$0c,$06,$3f
+    991  f720		       00 06 06 7f*	      .byte.b	$00,$06,$06,$7f,$66,$36,$1e,$0e
+    992  f728		       00 3e 63 03*	      .byte.b	$00,$3e,$63,$03,$03,$7e,$60,$7e
+    993  f730		       00 3e 63 63*	      .byte.b	$00,$3e,$63,$63,$7e,$60,$30,$1e
+    994  f738		       00 18 18 18*	      .byte.b	$00,$18,$18,$18,$0c,$06,$63,$7f
+    995  f740		       00 3e 43 4f*	      .byte.b	$00,$3e,$43,$4f,$3c,$72,$62,$3c
+    996  f748		       00 3c 06 03*	      .byte.b	$00,$3c,$06,$03,$3f,$63,$63,$3e
+    997  f750				   BlankGlyph
+    998  f750		       00 00 00 00*	      .byte.b	$00,$00,$00,$00,$00,$00,$00,$00
+    999  f758
+   1000  f758							; "GAMEOVER" packed across 6 glyph slots (8 letters in 48px). User-supplied,
+   1001  f758							; with each glyph's 8 bytes reversed to the kernel's bottom-row-first order.
+   1002  f758				   GameOverGlyphs
+   1003  f758		       00 79 cd cd*	      .byte.b	$00,$79,$cd,$cd,$dd,$c1,$c1,$78
+   1004  f760		       00 b6 b6 f6*	      .byte.b	$00,$b6,$b6,$f6,$b7,$b7,$b6,$e4
+   1005  f768		       00 37 36 b6*	      .byte.b	$00,$37,$36,$b6,$f7,$76,$36,$17
+   1006  f770		       00 9c 36 36*	      .byte.b	$00,$9c,$36,$36,$b6,$36,$36,$9c
+   1007  f778		       00 23 73 db*	      .byte.b	$00,$23,$73,$db,$db,$db,$db,$db
+   1008  f780		       00 db 1b 1e*	      .byte.b	$00,$db,$1b,$1e,$db,$1b,$1b,$de
+   1009  f788
+   1010  f788							; "H" and "I" for the HInnnn high-score frame (digit-font orientation:
+   1011  f788							; byte order is bottom row first, top row last; 7px wide).
+   1012  f788				   LetterH
+   1013  f788		       00 63 63 63*	      .byte.b	$00,$63,$63,$63,$7f,$63,$63,$63
+   1014  f790				   LetterI
+   1015  f790		       00 3c 18 18*	      .byte.b	$00,$3c,$18,$18,$18,$18,$18,$3c
+   1016  f798
+   1017  f798							;-------------------------------------------------------------
+   1018  f798							; DrawDigits - render the 48x8 score from Digit0..Digit5 pointers.
+   1019  f798							; Page-aligned so BigLoop's branch stays in-page (exact 76-cycle rows).
+   1020  f798							; After examples/6-digit-score.asm (Temp -> tempOne, LoopCount -> loopCnt).
+   1021  f798							;-------------------------------------------------------------
+   1022  f800		       00 00 00 00*	      align	$100
+   1023  f800				   DrawDigits
+   1024  f800		       a9 07		      lda	#7
+   1025  f802		       85 d4		      sta	loopCnt
+   1026  f804		       85 02		      sta	WSYNC
+      0  f806					      SLEEP	60
+      1  f806				   .CYCLES    SET	60
+      2  f806
+      3  f806				  -	      IF	.CYCLES < 2
+      4  f806				  -	      ECHO	"MACRO ERROR: 'SLEEP': Duration must be > 1"
+      5  f806				  -	      ERR
+      6  f806					      ENDIF
+      7  f806
+      8  f806				  -	      IF	.CYCLES & 1
+      9  f806				  -	      IFNCONST	NO_ILLEGAL_OPCODES
+     10  f806				  -	      nop	0
+     11  f806				  -	      ELSE
+     12  f806				  -	      bit	VSYNC
+     13  f806				  -	      ENDIF
+     14  f806				  -.CYCLES    SET	.CYCLES - 3
+     15  f806					      ENDIF
+     16  f806
+     17  f806					      REPEAT	.CYCLES / 2
+     18  f806		       ea		      nop
+     17  f806					      REPEND
+     18  f807		       ea		      nop
+     17  f807					      REPEND
+     18  f808		       ea		      nop
+     17  f808					      REPEND
+     18  f809		       ea		      nop
+     17  f809					      REPEND
+     18  f80a		       ea		      nop
+     17  f80a					      REPEND
+     18  f80b		       ea		      nop
+     17  f80b					      REPEND
+     18  f80c		       ea		      nop
+     17  f80c					      REPEND
+     18  f80d		       ea		      nop
+     17  f80d					      REPEND
+     18  f80e		       ea		      nop
+     17  f80e					      REPEND
+     18  f80f		       ea		      nop
+     17  f80f					      REPEND
+     18  f810		       ea		      nop
+     17  f810					      REPEND
+     18  f811		       ea		      nop
+     17  f811					      REPEND
+     18  f812		       ea		      nop
+     17  f812					      REPEND
+     18  f813		       ea		      nop
+     17  f813					      REPEND
+     18  f814		       ea		      nop
+     17  f814					      REPEND
+     18  f815		       ea		      nop
+     17  f815					      REPEND
+     18  f816		       ea		      nop
+     17  f816					      REPEND
+     18  f817		       ea		      nop
+     17  f817					      REPEND
+     18  f818		       ea		      nop
+     17  f818					      REPEND
+     18  f819		       ea		      nop
+     17  f819					      REPEND
+     18  f81a		       ea		      nop
+     17  f81a					      REPEND
+     18  f81b		       ea		      nop
+     17  f81b					      REPEND
+     18  f81c		       ea		      nop
+     17  f81c					      REPEND
+     18  f81d		       ea		      nop
+     17  f81d					      REPEND
+     18  f81e		       ea		      nop
+     17  f81e					      REPEND
+     18  f81f		       ea		      nop
+     17  f81f					      REPEND
+     18  f820		       ea		      nop
+     17  f820					      REPEND
+     18  f821		       ea		      nop
+     17  f821					      REPEND
+     18  f822		       ea		      nop
+     17  f822					      REPEND
+     18  f823		       ea		      nop
+     19  f824					      REPEND
+   1028  f824				   .bigLoop
+   1029  f824		       a4 d4		      ldy	loopCnt	; counts 7..0
+   1030  f826		       b1 c8		      lda	(Digit0),y
+   1031  f828		       85 1b		      sta	GRP0
+   1032  f82a		       b1 ca		      lda	(Digit0+2),y
+   1033  f82c		       85 1c		      sta	GRP1
+   1034  f82e		       c5 00		      cmp	$00
+   1035  f830		       c5 00		      cmp	$00
+   1036  f832		       b1 cc		      lda	(Digit0+4),y
+   1037  f834		       85 1b		      sta	GRP0
+   1038  f836		       b1 d2		      lda	(Digit0+10),y
+   1039  f838		       85 85		      sta	tempOne
+   1040  f83a		       b1 d0		      lda	(Digit0+8),y
+   1041  f83c		       aa		      tax
+   1042  f83d		       b1 ce		      lda	(Digit0+6),y
+   1043  f83f		       a4 85		      ldy	tempOne
+   1044  f841		       85 1c		      sta	GRP1
+   1045  f843		       86 1b		      stx	GRP0
+   1046  f845		       84 1c		      sty	GRP1
+   1047  f847		       85 1b		      sta	GRP0
+   1048  f849		       c6 d4		      dec	loopCnt
+   1049  f84b		       10 d7		      bpl	.bigLoop
+   1050  f84d		       a9 00		      lda	#0
+   1051  f84f		       85 1b		      sta	GRP0
+   1052  f851		       85 1c		      sta	GRP1
+   1053  f853		       85 1b		      sta	GRP0
+   1054  f855		       85 1c		      sta	GRP1
+   1055  f857		       85 02		      sta	WSYNC	; align: DrawDigits is exactly 9 scanlines
+   1056  f859		       60		      rts
+   1057  f85a
+   1058  f85a							;-------------------------------------------------------------
+   1059  f85a							; Vectors
+   1060  f85a							;-------------------------------------------------------------
+   1061  fffc					      org	$fffc
+   1062  fffc		       00 f0		      .word.w	Reset
+   1063  fffe		       00 f0		      .word.w	Reset

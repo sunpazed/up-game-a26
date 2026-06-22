@@ -51,8 +51,8 @@ BAND_GREY    = 4
 
 GAP_WIDTH    = 8        ; missile gap width (NUSIZ0 = $30)
 GAP_WRAP     = 159      ; respawn x at the right edge (cycle-74 reaches 0..159)
-FALL_LO      = 12       ; gap-under-player window [FALL_LO..FALL_HI]
-FALL_HI      = 20
+FALL_LO      = 14       ; gap-under-player window [FALL_LO..FALL_HI], centred on
+FALL_HI      = 18       ;   ~15 (measured: gap fully under the player at gapX~15)
 
 ; entities (GRP1): one per platform, scroll right-to-left
 ENT_CONE     = 1        ; gold collectible (+1 score)

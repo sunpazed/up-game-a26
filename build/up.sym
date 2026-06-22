@@ -1,199 +1,238 @@
 --- Symbol List (sorted by symbol)
+0.bandsDone              f1ae              (R )
+0.bigLoop                f824              (R )
+0.blankSpr               f152              (R )
+0.ccDone                 f348              (R )
+0.ccNewHi                f340              (R )
+0.ccSkull                f32a              (R )
+0.crStore                f358              (R )
+0.doSpawn                f2bf              (R )
+0.entLoop                f29c              (R )
+0.entNext                f2ce              (R )
+0.entWaiting             f2ae              (R )
 0.FREE_BYTES             0000                  
+0.gapLoop                f28f              (R )
+0.gapNext                f297              (R )
+0.gdpLoop                f387              (R )
+0.goCntOk                f1de              (R )
+0.goHi                   f3c5              (R )
+0.goHiLoop               f3d1              (R )
+0.goText                 f3a3              (R )
+0.grnLoop                f195              (R )
+0.gryLoop                f1a2              (R )
+0.gsAfter                f1d2              (R )
+0.gsFrozen               f1cf              (R )
+0.noFall                 f2e8              (R )
+0.padLoop                f16e              (R )
+0.precomp                f1e0              (R )
+0.rngNoFb                f260              (R )
+0.scrollStep             f28d              (R )
+0.selEnt                 f15a              (R )
+0.setHi                  f3ea              (R )
+0.sprLoop                f175              (R )
+0.store                  f275              (R )
+0.wait74                 f235              (R )
+0.wait74p                f253              (R )
 1.CLEAR_STACK            f006              (R )
-2.VSLP1                  f010              (R )
-3.LINES                  0024              (R )
-3.vblank                 f01d              (R )
-4.LINES                  0014              (R )
-4.vblank                 f032              (R )
-ActiveEntityType         009c              (R )
-AddScorePoint            f191              (R )
-AddScorePoint_Done       f197              (R )
+2.VSLP1                  f098              (R )
+3.CYCLES                 0024              (R )
+4.CYCLES                 0018              (R )
+5.CYCLES                 0014              (R )
+6.ADDRESS                f415              (R )
+6.POINTER                0087              (R )
+7.ADDRESS                f41d              (R )
+7.POINTER                0087              (R )
+8.CYCLES                 003c              (R )
 AUDC0                    0015                  
 AUDC1                    0016                  
 AUDF0                    0017                  
 AUDF1                    0018                  
 AUDV0                    0019                  
 AUDV1                    001a                  
-CheckCollisions          f147                  
-CheckCollisions_CheckSkull f15a              (R )
-CheckCollisions_Done     f16e              (R )
-CheckHoleForLane         f11a              (R )
-CheckHoleForLane_NoHole  f127              (R )
+BAND_GREEN               0004              (R )
+BAND_GREY                0004              (R )
+BAND_PAD                 0009              (R )
+bandCount                0083              (R )
+BandLoop                 f11b              (R )
+BlankGlyph               f750              (R )
+btnPrev                  0082              (R )
+CalcQuickPos             f35b              (R )
+CheckCollision           f2f4              (R )
+CheckRestart             f349              (R )
+COL_BG                   000c              (R )
+COL_CONE                 001e              (R )
+COL_GAMEOVER             0042              (R )
+COL_GREEN                00c8              (R )
+COL_GREY                 0006              (R )
+COL_PLAYER               0002              (R )
+COL_SKULL                0044              (R )
 COLUBK                   0009              (R )
 COLUP0                   0006              (R )
 COLUP1                   0007              (R )
 COLUPF                   0008              (R )
-CONE_RESPAWN_X           00b0              (R )
-ConeLane                 0098              (R )
-ConeSprite               f39b                  
-ConeX                    0096              (R )
-ConeY                    0097              (R )
+ConeSprite               f425              (R )
 CTRLPF                   000a              (R )
+curFloor                 0084              (R )
 CXBLPF                   0006                  
-CXCLR                    002c                  
+CXCLR                    002c              (R )
 CXM0FB                   0004                  
 CXM0P                    0000                  
 CXM1FB                   0005                  
 CXM1P                    0001                  
 CXP0FB                   0002                  
 CXP1FB                   0003                  
-CXPPMM                   0007                  
-DebugSprite              f2cc              (R )
-DrawHUD                  f26f                  
-DrawKernel               f213              (R )
-DrawKernel_Done          f262              (R )
-DrawKernel_Loop          f241              (R )
-DrawKernel_NoWrap        f25c              (R )
-ENABL                    001f              (R )
+CXPPMM                   0007              (R )
+DelayTab                 f40a              (R )
+Digit0                   00c8              (R )
+DrawDigits               f800              (R )
+ENABL                    001f                  
 ENAM0                    001d              (R )
-ENAM1                    001e              (R )
-FrameCounter             0080              (R )
-GAME_STATE_OVER          0001              (R )
-GAME_STATE_PLAY          0000              (R )
-GameState                0081              (R )
-GAP_X_MAX                0098              (R )
-GAP_X_MIN                0008              (R )
+ENAM1                    001e                  
+ENT_CONE                 0001              (R )
+ENT_DEFER                0010              (R )
+ENT_DELAY_MASK           007f              (R )
+ENT_DELAY_MIN            0020              (R )
+ENT_SKULL                0002              (R )
+ENT_WRAP                 0098              (R )
+EntColorTable            f435              (R )
+entDelay                 00a9              (R )
+entJmpLo                 00b8              (R )
+entPtr                   00be              (R )
+entQuick                 00b2              (R )
+EntSprLo                 f438              (R )
+entType                  009d              (R )
+EntTypeRoll              f43b              (R )
+entX                     00a3              (R )
+FALL_HI                  0012              (R )
+FALL_LO                  000e              (R )
+FontTable                f700              (R )
+GameOverGlyphs           f758              (R )
+gameState                00c1              (R )
+GAP_SPAWN_CLEAR          0091              (R )
+GAP_WIDTH                0008                  
+GAP_WRAP                 009f              (R )
+GapOnTable               f3f9              (R )
+gapQuick                 0091              (R )
+gapX                     008b              (R )
+GetDigitPtrs             f379              (R )
+goCnt                    00c7              (R )
 GRP0                     001b              (R )
 GRP1                     001c              (R )
-HiScoreHi                00a0              (R )
-HiScoreLo                009f              (R )
+hiScore                  00c5              (R )
 HMBL                     0024                  
 HMCLR                    002b              (R )
-HMM0                     0022                  
+HMM0                     0022              (R )
 HMM1                     0023                  
 HMOVE                    002a              (R )
 HMP0                     0020              (R )
-HMP1                     0021                  
-HudPF1Table              f2bc                  
-InitGame                 f03a              (R )
-InitRound                f044              (R )
+HMP1                     0021              (R )
+HUD_LINES                000c                  
 INPT0                    0008                  
 INPT1                    0009                  
 INPT2                    000a                  
 INPT3                    000b                  
 INPT4                    000c              (R )
 INPT5                    000d                  
-INTIM                    0284                  
-IsNearPlayerX            f16f              (R )
-IsNearPlayerX_EntityRight f182              (R )
-IsNearPlayerX_Far        f18b              (R )
-IsNearPlayerX_Near       f18e              (R )
-JoyNow                   0084              (R )
-JoyPrev                  0083              (R )
-JumpPressed              0085              (R )
-KernelPhase              00a2              (R )
-KernelScanline           00a1              (R )
-LANE_COUNT               0006              (R )
-LANE_LAST                0005              (R )
-LaneYTable               f294              (R )
-NextFrame                f00e              (R )
-NextRandom               f288              (R )
-NextRandom_DoEor         f28f              (R )
-NextRandom_NoEor         f291              (R )
+INTIM                    0284              (R )
+JumpTabM0                f525              (R )
+LetterH                  f788              (R )
+LetterI                  f790              (R )
+loopCnt                  00d4              (R )
+MultTab                  f3ff              (R )
+NewGame                  f02b              (R )
+NextFrame                f092              (R )
+NO_ILLEGAL_OPCODES       0000 ????         (R )
+NUM_BANDS                0006              (R )
 NUSIZ0                   0004              (R )
 NUSIZ1                   0005              (R )
 PF0                      000d              (R )
 PF1                      000e              (R )
 PF2                      000f              (R )
-PlatformEnableValue      f2ba                  
-PlatformMask             f2db                  
-PlatformP1Value          f2b8                  
-PlatformPF0Table         f29a                  
-PlatformPF0Value         f2b2                  
-PlatformPF1Table         f2a2                  
-PlatformPF1Value         f2b4                  
-PlatformPF2Table         f2aa                  
-PlatformPF2Value         f2b6                  
-PLAYER_GAP_MAX           002c              (R )
-PLAYER_GAP_MIN           0024              (R )
-PLAYER_START_LANE        0005              (R )
-PLAYER_X_RESET           0028              (R )
-PlayerGfx                00a3                  
-PlayerLane               0088              (R )
-PlayerSprite             f2d4                  
-PlayerX                  0086              (R )
-PlayerY                  0087              (R )
-PositionObjects          f1ef              (R )
-Random                   0082              (R )
-ReadInput                f0a2                  
-ReadInput_PrevWasPressed f0b8              (R )
-ReadInput_StoreCurrent   f0b8              (R )
+PLAYER_SLEEP             0017              (R )
+PLAYER_X                 000a                  
+playerBandCount          0081              (R )
+playerFloor              0080              (R )
+PlayerSprite             f415              (R )
+pM0_105                  f515              (R )
+pM0_120                  f518              (R )
+pM0_135                  f51b              (R )
+pM0_15                   f503              (R )
+pM0_150                  f51e              (R )
+pM0_3                    f500              (R )
+pM0_30                   f506              (R )
+pM0_45                   f509              (R )
+pM0_60                   f50c              (R )
+pM0_75                   f50f              (R )
+pM0_90                   f512              (R )
+Pos74M0                  f21d              (R )
+Pos74P1                  f23b              (R )
+posJmp                   0089              (R )
+posJmpLo                 0097              (R )
+PosTblM0                 f500              (R )
+PosTblP1                 f600              (R )
+pP1_105                  f615                  
+pP1_120                  f618                  
+pP1_135                  f61b                  
+pP1_15                   f603                  
+pP1_150                  f61e                  
+pP1_3                    f600                  
+pP1_30                   f606                  
+pP1_45                   f609                  
+pP1_60                   f60c                  
+pP1_75                   f60f                  
+pP1_90                   f612                  
+ReadInput                f263              (R )
 REFP0                    000b                  
 REFP1                    000c                  
 RESBL                    0014                  
-RESM0                    0012                  
+Reset                    f000              (R )
+RESM0                    0012              (R )
 RESM1                    0013                  
 RESMP0                   0028                  
 RESMP1                   0029                  
 RESP0                    0010              (R )
-RESP1                    0011                  
-RespawnCone              f1af              (R )
-RespawnCone_StoreLane    f1bf              (R )
-RespawnSkull             f1c5              (R )
+RESP1                    0011              (R )
+Rng                      f259              (R )
+rng                      00c0              (R )
 RSYNC                    0003                  
-ScoreHi                  009e              (R )
-ScoreLo                  009d              (R )
-Scroll                   0089              (R )
-SetHorizPos              f270              (R )
-SetHorizPos_DivideLoop   f275              (R )
-SKULL_RESPAWN_X          00c8              (R )
-SkullLane                009b              (R )
-SkullSprite              f3a3                  
-SkullX                   0099              (R )
-SkullY                   009a              (R )
-Start                    f000              (R )
+SCORE_COL                0000              (R )
+SCORE_SLEEP              0024              (R )
+scoreBCD                 00c2              (R )
+scrollFrac               00b0              (R )
+scrollSpeed              00af              (R )
+scrollStep               00b1              (R )
+SetRespawnDelay          f2e9              (R )
+SkullSprite              f42d              (R )
+SPEED_BASE               0020              (R )
+SPEED_INC                0001              (R )
+SPEED_MAX                0080              (R )
+SPRITE_H                 0008              (R )
+sprPtr                   0087              (R )
 SWACNT                   0281                  
 SWBCNT                   0283                  
 SWCHA                    0280                  
 SWCHB                    0282                  
-SyncConeY                f1df              (R )
-SyncPlayerY              f1d7              (R )
-SyncSkullY               f1e7              (R )
 T1024T                   0297                  
-Temp                     00a4              (R )
+tempFloor                0086              (R )
+tempOne                  0085              (R )
+THREE_COPIES             0003              (R )
 TIA_BASE_ADDRESS         0000              (R )
 TIA_BASE_READ_ADDRESS    0000              (R )
 TIA_BASE_WRITE_ADDRESS   0000              (R )
-TierDir0                 0090              (R )
-TierDir1                 0091              (R )
-TierDir2                 0092              (R )
-TierDir3                 0093              (R )
-TierDir4                 0094              (R )
-TierDir5                 0095              (R )
-TierGap0                 008a              (R )
-TierGap1                 008b              (R )
-TierGap2                 008c              (R )
-TierGap3                 008d              (R )
-TierGap4                 008e              (R )
-TierGap5                 008f              (R )
 TIM1T                    0294                  
-TIM64T                   0296                  
+TIM64T                   0296              (R )
 TIM8T                    0295                  
 TIMINT                   0285                  
-UpdateEntities           f12a                  
-UpdateEntities_CheckSkull f13d              (R )
-UpdateEntities_Done      f146              (R )
-UpdateGaps               f0d4              (R )
-UpdateGaps_Done          f0f9              (R )
-UpdateGaps_MoveLeft      f0ed              (R )
-UpdateGaps_MoveRight     f0de                  
-UpdateHighScore          f198              (R )
-UpdateHighScore_Done     f1ae              (R )
-UpdateHighScore_Store    f1a6              (R )
-UpdatePlayerLane         f0fa              (R )
-UpdatePlayerLane_CheckFall f108              (R )
-UpdatePlayerLane_Done    f119              (R )
-UpdatePlayerLane_FallOffBottom f119              (R )
-UpdateWorld              f0bd                  
-UpdateWorld_Done         f0d3              (R )
-UpdateWorld_Playing      f0cd              (R )
+UpdateWorld              f278              (R )
 VBLANK                   0001              (R )
+VBlankLoop               f0e5              (R )
 VDELBL                   0027                  
-VDELP0                   0025                  
-VDELP1                   0026                  
+VDELP0                   0025              (R )
+VDELP1                   0026              (R )
 VERSION_MACRO            006a                  
 VERSION_VCS              0069                  
 VSYNC                    0000              (R )
+WaitOverscan             f213              (R )
 WSYNC                    0002              (R )
+ZeroSprite               f41d              (R )
 --- End of Symbol List.
