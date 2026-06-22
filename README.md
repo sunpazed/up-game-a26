@@ -16,7 +16,7 @@ This project is a DASM Atari 2600 port of the JavaScript game `UP 1 WAY`
 - **M3 — Scrolling gaps (Missile 0) + fall-through**: ✅ done, verified in Stella
   (edge-to-edge cycle-74 positioning, no comb, stable player).
 - **M4 — Entities (cones/skulls) + collision**: ✅ implemented — cone → +score, skull → game over.
-- M5 — HUD (6-digit score display) + power-up + game-over screen: pending.
+- **M5 — HUD**: 🟡 6-digit score display implemented; power-up + GAME OVER text + HI-score pending.
 
 ## Kernel Architecture
 

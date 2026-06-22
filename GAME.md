@@ -130,12 +130,11 @@ Proposed layout (refine during implementation):
   skull → game over (freeze + red tint + restart on fire).
 - Score HUD display is M5; for now the cone's effect is it disappearing, the skull's is game over.
 
-### M5 — HUD, power-up, game-over/reset
-- **6-digit BCD score** in the dedicated top HUD region, 48-px digit path
-  (`examples/6-digit-score.asm` / `examples/punchout.asm`).
-- Power-up that clears skulls.
-- GAME OVER display + reset to a new game.
-- Verify: full loop playable as a 4K cart.
+### M5 — HUD, power-up, game-over/reset  🟡 HUD score IMPLEMENTED (pending emu check)
+- ✅ **6-digit BCD score** in the dedicated top HUD region, 48-px digit path.
+- ⬜ Power-up that clears skulls.
+- ⬜ GAME OVER text (currently a red-screen freeze placeholder).
+- ⬜ HI-score (top-right).
 
 ## 5. Example References
 - Horizontal positioning: `examples/example.asm` (`SetHorizPos`), `examples/punchout.asm`
@@ -408,6 +407,31 @@ RAM (so score/state reset), and re-inits. The score isn't visible yet (HUD is M5
 cone's visible effect is disappearing on pickup, the skull's is the red freeze.
 
 **RAM added:** `gameState`, `scoreBCD[3]`.
+
+### M5 (part 1) — HUD: 6-digit score
+
+**48-pixel score kernel** (after `examples/6-digit-score.asm`). P0 and P1 each draw 3 close copies
+(`NUSIZ=THREE_COPIES`) and are interleaved (`HMP1` nudge + `VDELP0/VDELP1`) into 6 digits across
+48px. `GetDigitPtrs` (run in overscan off the just-updated `scoreBCD`, and once in init to seed
+frame 1) turns the 3 BCD bytes into 6 `FontTable` pointers (`Digit0..Digit5`). `DrawDigits`
+(page-aligned; each `bigLoop` row is exactly 76 cycles) renders the 8 rows.
+
+**Frame layout (all WSYNC-exact — a timer-based attempt rolled).** The whole frame stays
+WSYNC-counted: VSYNC 3 + VBLANK 36 + HUD 12 + bands 180 + overscan(TIM64T ~30) = 262.
+- VBLANK uses 2 of its 36 lines to position the score sprites (NUSIZ/VDELP/colors + RESP0/RESP1
+  + HMP1), then a 34-line WSYNC loop.
+- HUD = exactly 12 lines: COLUPF line + `DrawDigits` (9 lines — it ends on a `WSYNC` so the
+  count is exact) + 2 transition lines that **restore game sprite state** (NUSIZ0=$30, NUSIZ1=0,
+  VDELP=0) and **re-strobe the player P0** near `PLAYER_X` (coarse strobe — exact x is cosmetic
+  now that collision is hardware). The player is no longer positioned at init; `PosStd` removed.
+- *Pitfall recorded:* `TIMER_SETUP`/`TIMER_WAIT` for the HUD rolled the screen — the score
+  kernel's free-running 8 rows overran the 12-line timer, so `TIMER_WAIT` couldn't pad and the
+  visible region exceeded 192. WSYNC-exact (with `DrawDigits` ending on a `WSYNC`) is reliable.
+
+**RAM added:** `Digit0[12]`, `loopCnt`.
+
+**Tunable / not-yet-polished:** score sits center-ish (`SCORE_SLEEP=36`, the reference value) —
+top-left placement + a "HI" score are follow-ups; player x via `PLAYER_SLEEP`.
 
 ## 9. Steering Log (user-directed decisions)
 

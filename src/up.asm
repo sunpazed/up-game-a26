@@ -66,6 +66,12 @@ ENT_WRAP     = 152      ; respawn x. Kept <=152 so the 8px GRP1 object never
 
 COL_GAMEOVER = $42      ; red background tint while game over
 
+; HUD score (48-pixel 6-digit method, after examples/6-digit-score.asm)
+THREE_COPIES = %011     ; NUSIZ: 3 close copies (P0 + P1 interleaved = 6 digits)
+SCORE_COL    = $00      ; black digits on the grey background
+SCORE_SLEEP  = 36       ; positions the score block (RESP0/RESP1 timing)
+PLAYER_SLEEP = 23       ; re-strobes the player P0 near PLAYER_X after the HUD
+
 ;-------------------------------------------------------------
 ; RAM
 ;-------------------------------------------------------------
@@ -91,7 +97,9 @@ entJmpLo        ds 6    ; per-floor precomputed strobe-table entry (low byte)
 entPtr          ds 2    ; pointer to the current band's entity sprite
 rng             ds 1    ; PRNG state (LFSR)
 gameState       ds 1    ; 0 = playing, 1 = game over
-scoreBCD        ds 3    ; 6-digit BCD score (shown by the M5 HUD)
+scoreBCD        ds 3    ; 6-digit BCD score
+Digit0          ds 12   ; 6 font pointers (Digit0..Digit5) for the score kernel
+loopCnt         ds 1    ; scanline counter inside DrawDigits
 
 ;-------------------------------------------------------------
 ; ROM
@@ -166,21 +174,18 @@ Reset
 	lda #105
 	sta entX+5
 
-	; Clear motion registers, then position the static player once
-	; (off-screen, plain divide-by-15). Afterwards default every motion
-	; register to $80, the cycle-74 HMOVE "no motion" value: the per-band
-	; cycle-74 HMOVEs re-apply ALL HMxx, and $00 there is NOT zero motion
-	; (it would walk the object); $80 (NO_MO_74) holds non-targeted
-	; objects still. Each positioner sets its own HMxx to the fine value
-	; for its HMOVE, then restores $80.
+	; Default every motion register to $80, the cycle-74 HMOVE "no motion"
+	; value: the per-band cycle-74 HMOVEs re-apply ALL HMxx, and $00 there
+	; is NOT zero motion (it would walk the object); $80 (NO_MO_74) holds
+	; non-targeted objects still. The player P0 is (re)placed each frame in
+	; the HUD transition; gaps/entities are placed per band.
 	sta HMCLR
-	lda #PLAYER_X
-	ldx #0
-	jsr PosStd
 	lda #$80
 	sta HMP0
 	sta HMM0
 	sta HMP1
+
+	jsr GetDigitPtrs        ; seed score pointers (score=0) for the first HUD
 
 ;-------------------------------------------------------------
 ; Main frame loop
@@ -191,8 +196,30 @@ NextFrame
 	VERTICAL_SYNC           ; 3 vsync lines (leaves A=0)
 	sta CXCLR               ; clear collision latches for this frame
 
-	; 36 lines of VBLANK
-	ldx #36
+	; --- position the score sprites (P0+P1, 3 copies each = 6 digits) ---
+	; (uses 2 of the 36 VBLANK scanlines; the rest are the WSYNC loop below)
+	lda #THREE_COPIES
+	sta NUSIZ0
+	sta NUSIZ1
+	lda #SCORE_COL
+	sta COLUP0
+	sta COLUP1
+	sta WSYNC               ; vblank line 1
+	SLEEP SCORE_SLEEP
+	sta RESP0               ; coarse-position P0 and P1 together
+	sta RESP1
+	sta HMCLR               ; clear stray motion (player left HMP0=$80)
+	lda #$10
+	sta HMP1                ; nudge P1 so its copies interleave with P0's
+	sta WSYNC               ; vblank line 2
+	sta HMOVE
+	SLEEP 24                ; settle time after HMOVE before HMCLR
+	sta HMCLR
+	lda #1
+	sta VDELP0              ; vertical delay: enables the 6-digit retrigger
+	sta VDELP1
+
+	ldx #34                 ; remaining VBLANK lines (2 + 34 = 36)
 VBlankLoop
 	sta WSYNC
 	dex
@@ -202,16 +229,26 @@ VBlankLoop
 	sta VBLANK              ; display on
 
 ;-------------------------------------------------------------
-; Visible kernel (192 lines)
+; Visible kernel (192 lines = HUD 12 + 6 bands * 30)
 ;-------------------------------------------------------------
-	; HUD region (playfield invisible)
+	; --- HUD region: 6-digit score (12 WSYNC-exact lines) ---
 	lda #COL_BG
-	sta COLUPF
-	ldx #HUD_LINES
-HudLoop
+	sta COLUPF              ; HUD line 0: playfield invisible behind the score
+	jsr DrawDigits          ; HUD lines 1-9 (DrawDigits ends on a WSYNC)
+	; HUD line 10: restore game sprite state
+	lda #0
+	sta VDELP0
+	sta VDELP1
+	sta NUSIZ1              ; entity = single copy
+	lda #$30
+	sta NUSIZ0              ; missile 8px wide, player single copy
 	sta WSYNC
-	dex
-	bne HudLoop
+	; HUD line 11: re-place the player P0 near PLAYER_X
+	SLEEP PLAYER_SLEEP
+	sta RESP0
+	lda #$80
+	sta HMP0                ; cycle-74 no-motion so band HMOVEs hold it
+	sta WSYNC
 
 	; Six platform bands
 	lda #NUM_BANDS
@@ -370,6 +407,9 @@ BandLoop
 	sbc playerFloor
 	sta playerBandCount
 
+	; build the score's digit pointers for next frame's HUD
+	jsr GetDigitPtrs
+
 WaitOverscan
 	lda INTIM
 	bne WaitOverscan
@@ -520,18 +560,20 @@ CheckCollision
 	beq .ccDone             ; guard: no entity here
 	cmp #ENT_SKULL
 	beq .ccSkull
-	; cone collected: +1 (BCD), then consume it
+	; cone collected: +1 (BCD). GetDigitPtrs shows scoreBCD+2 as the
+	; leftmost (most-significant) digits, so the +1 must land on the
+	; least-significant byte scoreBCD+0 and carry up toward +2.
 	sed
-	lda scoreBCD+2
+	lda scoreBCD+0
 	clc
 	adc #1
-	sta scoreBCD+2
+	sta scoreBCD+0
 	lda scoreBCD+1
 	adc #0
 	sta scoreBCD+1
-	lda scoreBCD+0
+	lda scoreBCD+2
 	adc #0
-	sta scoreBCD+0
+	sta scoreBCD+2
 	cld
 	lda #0
 	sta entType,x           ; cone consumed (respawns on its next wrap)
@@ -589,26 +631,34 @@ CalcQuickPos
 	rts
 
 ;-------------------------------------------------------------
-; PosStd - plain divide-by-15 positioning (object X at pixel A).
-;   Used once at init for the static player (off-screen). 2 scanlines.
+; GetDigitPtrs - build the 6 font pointers (Digit0..Digit5) from the
+;   3-byte BCD score. Each nibble * 8 = offset into FontTable.
+;   (After examples/6-digit-score.asm.)
 ;-------------------------------------------------------------
-PosStd
-	sta WSYNC
-	sta HMOVE               ; leading HMOVE/HMCLR set the standard strobe timing
-	sta HMCLR               ; (without these the strobe fires ~18px too far left)
-	sec
-.psd
-	sbc #15
-	bcs .psd
-	eor #7
+GetDigitPtrs
+	ldx #0                  ; leftmost digit
+	ldy #2                  ; most-significant BCD byte first
+.gdpLoop
+	lda scoreBCD,y
+	and #$f0                ; high nibble * 16
+	lsr                     ; -> * 8
+	sta Digit0,x
+	lda #>FontTable
+	sta Digit0+1,x
+	inx
+	inx
+	lda scoreBCD,y
+	and #$0f                ; low nibble
 	asl
 	asl
-	asl
-	asl
-	sta RESP0,x
-	sta HMP0,x
-	sta WSYNC
-	sta HMOVE
+	asl                     ; * 8
+	sta Digit0,x
+	lda #>FontTable
+	sta Digit0+1,x
+	inx
+	inx
+	dey
+	bpl .gdpLoop
 	rts
 
 ;-------------------------------------------------------------
@@ -677,7 +727,7 @@ EntTypeRoll
 ;   entry's `sta RESM0`, so only the jumped-to strobe executes, then
 ;   execution falls through to `sta HMOVE` at cycle ~74.
 ;-------------------------------------------------------------
-	org $f300
+	org $f400
 PosTblM0
 pM0_3
 	sta RESM0
@@ -720,11 +770,11 @@ JumpTabM0
 	.byte <pM0_90, <pM0_105, <pM0_120, <pM0_135, <pM0_150
 
 ;-------------------------------------------------------------
-; Player-1 (GRP1) cycle-74 strobe table. Placed at $f400 so its
-; entries share the SAME low bytes as PosTblM0 ($f300) -> JumpTabM0
-; works for both; Pos74P1 just uses the $f4 high byte.
+; Player-1 (GRP1) cycle-74 strobe table. Placed at $f500 so its
+; entries share the SAME low bytes as PosTblM0 ($f400) -> JumpTabM0
+; works for both; Pos74P1 just uses the $f5 high byte.
 ;-------------------------------------------------------------
-	org $f400
+	org $f500
 PosTblP1
 pP1_3
 	sta RESP1
@@ -760,6 +810,64 @@ pP1_150
 	sta RESP1
 	sta HMOVE
 	sta WSYNC
+	rts
+
+;-------------------------------------------------------------
+; FontTable - 8x8 bitmaps for digits 0-9 (page-aligned so each
+; digit's 8 bytes never cross a page). From examples/6-digit-score.asm.
+;-------------------------------------------------------------
+	align $100
+FontTable
+	.byte $00,$1c,$32,$63,$63,$63,$26,$1c
+	.byte $00,$3f,$0c,$0c,$0c,$0c,$1c,$0c
+	.byte $00,$7f,$70,$3c,$1e,$07,$63,$3e
+	.byte $00,$3e,$63,$03,$1e,$0c,$06,$3f
+	.byte $00,$06,$06,$7f,$66,$36,$1e,$0e
+	.byte $00,$3e,$63,$03,$03,$7e,$60,$7e
+	.byte $00,$3e,$63,$63,$7e,$60,$30,$1e
+	.byte $00,$18,$18,$18,$0c,$06,$63,$7f
+	.byte $00,$3e,$43,$4f,$3c,$72,$62,$3c
+	.byte $00,$3c,$06,$03,$3f,$63,$63,$3e
+
+;-------------------------------------------------------------
+; DrawDigits - render the 48x8 score from Digit0..Digit5 pointers.
+; Page-aligned so BigLoop's branch stays in-page (exact 76-cycle rows).
+; After examples/6-digit-score.asm (Temp -> tempOne, LoopCount -> loopCnt).
+;-------------------------------------------------------------
+	align $100
+DrawDigits
+	lda #7
+	sta loopCnt
+	sta WSYNC
+	SLEEP 60
+.bigLoop
+	ldy loopCnt             ; counts 7..0
+	lda (Digit0),y
+	sta GRP0
+	lda (Digit0+2),y
+	sta GRP1
+	cmp $00
+	cmp $00
+	lda (Digit0+4),y
+	sta GRP0
+	lda (Digit0+10),y
+	sta tempOne
+	lda (Digit0+8),y
+	tax
+	lda (Digit0+6),y
+	ldy tempOne
+	sta GRP1
+	stx GRP0
+	sty GRP1
+	sta GRP0
+	dec loopCnt
+	bpl .bigLoop
+	lda #0
+	sta GRP0
+	sta GRP1
+	sta GRP0
+	sta GRP1
+	sta WSYNC               ; align: DrawDigits is exactly 9 scanlines
 	rts
 
 ;-------------------------------------------------------------
