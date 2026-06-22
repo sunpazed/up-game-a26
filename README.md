@@ -1,7 +1,20 @@
 # UP 1 WAY Atari 2600 Port
 
-This project is a DASM Atari 2600 port of the JavaScript game `UP 1 WAY`
-(`js/main.js`). Target: a complete, playable 4K cart.
+This project is a DASM Atari 2600 port of the JavaScript game [UP 1 WAY](https://abagames.github.io/crisp-game-lib-11-games/?up1way) (see `js/main.js`). The target is a complete, playable 4K cart. 
+
+## Authorship
+
+Co-authored with Opus 4.8, it took approximately 1.768M tokens to generate this code. Review `GAME.md` to track the progress of this games development, including the examples and developer steering required to generate a stable graphics kernel and coherant Atari 2600 game.
+
+```
+ Total cost:            $206.19
+ Total duration (API):  5h 43m 4s
+ Total duration (wall): 22h 4m 14s
+ Total code changes:    3280 lines added, 1324 lines removed
+   Usage by model:
+       claude-haiku-4-5:  443 input, 11 output, 0 cache read, 0 cache write ($0.0005)
+        claude-opus-4-8:  79.1k input, 1.4m output, 317.3m cache read, 1.8m cache write ($206.19)
+```
 
 ## Current Status
 
