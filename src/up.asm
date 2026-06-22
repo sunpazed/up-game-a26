@@ -66,6 +66,13 @@ ENT_WRAP     = 152      ; respawn x. Kept <=152 so the 8px GRP1 object never
 ENT_DELAY_MIN  = 32     ; off-screen wait before an entity re-enters:
 ENT_DELAY_MASK = $7f    ;   ENT_DELAY_MIN + (rng & MASK) = 32..159 frames
 
+; Scroll speed in 1/32-px fixed point. Per-frame step = (scrollFrac + scrollSpeed)
+; >> 5 whole pixels; the low 5 bits carry as the fraction. Keep SPEED_MAX <= 224
+; so scrollFrac (<=31) + scrollSpeed never overflows 8 bits.
+SPEED_BASE   = 32       ; base speed (= 1.0 px/frame)
+SPEED_INC    = 1        ; per cone (= +0.125 px/frame; ~24 cones to top speed)
+SPEED_MAX    = 128      ; cap (= 4.0 px/frame; <= the fall window so falls hold)
+
 COL_GAMEOVER = $42      ; red background tint while game over
 
 ; HUD score (48-pixel 6-digit method, after examples/6-digit-score.asm)
@@ -95,6 +102,9 @@ posJmpLo        ds 6    ; per-floor precomputed strobe-table entry (low byte)
 entType         ds 6    ; per-floor entity: 0 none/hidden, 1 cone, 2 skull
 entX            ds 6    ; per-floor entity x position
 entDelay        ds 6    ; per-floor frames left to wait off-screen before respawn
+scrollSpeed     ds 1    ; fractional scroll speed (ramps with score)
+scrollFrac      ds 1    ; fixed-point fractional accumulator
+scrollStep      ds 1    ; whole pixels to scroll this frame
 entQuick        ds 6    ; per-floor precomputed quickPos for the entity (GRP1)
 entJmpLo        ds 6    ; per-floor precomputed strobe-table entry (low byte)
 entPtr          ds 2    ; pointer to the current band's entity sprite
@@ -160,6 +170,9 @@ NewGame
 	sta scoreBCD+0
 	sta scoreBCD+1
 	sta scoreBCD+2
+	sta scrollFrac
+	lda #SPEED_BASE
+	sta scrollSpeed         ; start each game at base speed (1 px/frame)
 
 	; Staggered initial gap positions (floor 5 has no gap)
 	lda #140
@@ -523,18 +536,67 @@ ReadInput
 ; UpdateWorld - scroll gaps left, wrap, and fall-through check
 ;-------------------------------------------------------------
 UpdateWorld
-	; scroll gaps for floors 0..4 (floor 5 has no gap)
+	; advance the PRNG once per frame so respawns stay varied
+	jsr Rng
+
+	; Sub-pixel speed: accumulate the fractional speed; the carry is an
+	; extra whole pixel this frame, so the scroll step is 1 or 2 px.
+	; (scrollSpeed ramps with the score; see CheckCollision.)
+	lda scrollFrac
+	clc
+	adc scrollSpeed         ; accumulate 1/32-px units
+	tax                     ; X = total (whole.frac)
+	and #$1F
+	sta scrollFrac          ; carry the fraction (low 5 bits) to next frame
+	txa
+	lsr
+	lsr
+	lsr
+	lsr
+	lsr                     ; whole pixels this frame = total >> 5
+	sta scrollStep
+
+.scrollStep
+	; --- scroll gaps (floors 0..4 ; floor 5 has none) ---
 	ldx #4
-.scroll
+.gapLoop
 	dec gapX,x
-	bne .next               ; reached 0 => fully off the left, wrap to right
+	bne .gapNext            ; reached 0 => wrap to the right
 	lda #GAP_WRAP
 	sta gapX,x
-.next
+.gapNext
 	dex
-	bpl .scroll
+	bpl .gapLoop
 
-	; fall-through: if player floor < 5 and a gap is under the player
+	; --- entities: scroll, hide for a random delay, re-enter ---
+	ldx #5
+.entLoop
+	lda entType,x
+	beq .entWaiting         ; type 0 = hidden, waiting to respawn
+	dec entX,x
+	bne .entNext
+	lda #0
+	sta entType,x           ; reached the edge -> hide + arm a respawn delay
+	jsr SetRespawnDelay
+	jmp .entNext
+.entWaiting
+	dec entDelay,x
+	bne .entNext
+	jsr Rng                 ; delay elapsed -> respawn with a random type
+	and #3
+	tay
+	lda EntTypeRoll,y
+	sta entType,x
+	lda #ENT_WRAP
+	sta entX,x
+.entNext
+	dex
+	bpl .entLoop
+
+	dec scrollStep
+	bne .scrollStep         ; run the scroll 1 or 2 times this frame
+
+	; --- fall-through (once per frame): gap under the player? ---
 	lda playerFloor
 	cmp #5
 	bcs .noFall             ; bottom tier is solid/safe
@@ -546,37 +608,6 @@ UpdateWorld
 	bcc .noFall             ; gap is left of the player
 	inc playerFloor         ; fall down one tier
 .noFall
-	; advance the PRNG once per frame so respawns stay varied
-	jsr Rng
-	; entities: scroll left to the edge, then HIDE for a randomised delay
-	; before re-entering from the right with a random type. The off-screen
-	; wait spaces them out so they don't pop straight back in.
-	ldx #5
-.entScroll
-	lda entType,x
-	beq .entWaiting         ; type 0 = hidden, waiting to respawn
-	; visible: scroll toward the left edge
-	dec entX,x
-	bne .entNext
-	; reached the edge -> hide and arm a random respawn delay
-	lda #0
-	sta entType,x
-	jsr SetRespawnDelay
-	jmp .entNext
-.entWaiting
-	dec entDelay,x
-	bne .entNext
-	; delay elapsed -> respawn at the right with a random type
-	jsr Rng
-	and #3
-	tay
-	lda EntTypeRoll,y
-	sta entType,x
-	lda #ENT_WRAP
-	sta entX,x
-.entNext
-	dex
-	bpl .entScroll
 	rts
 
 ;-------------------------------------------------------------
@@ -623,6 +654,13 @@ CheckCollision
 	lda #0
 	sta entType,x           ; cone consumed
 	jsr SetRespawnDelay     ; wait before a new entity enters this floor
+	; ramp the scroll speed (sub-pixel speed-up with score)
+	lda scrollSpeed
+	cmp #SPEED_MAX
+	bcs .ccDone             ; already at max
+	clc
+	adc #SPEED_INC
+	sta scrollSpeed
 	rts
 .ccSkull
 	lda #1

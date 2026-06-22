@@ -135,12 +135,24 @@ Proposed layout (refine during implementation):
 - ✅ GAME OVER: alternates "GAMEOVER" text and "HInnnn" (high score), 120 frames each.
 - ✅ HI-score tracked (max on death), persists across restarts via a soft-reset (NewGame).
 
-### M6 — Spawn spacing + score-based speed-up  🟡 (a) spacing DONE, (b) speed-up next
+### M6 — Spawn spacing + score-based speed-up  ✅ IMPLEMENTED (pending emu check)
 - (a) ✅ **Respawn spacing.** Entities now run a per-floor state machine: visible → scroll to the
   left edge → **hide** (`entType=0`) and arm `entDelay[floor] = ENT_DELAY_MIN + (rng & MASK)`
   (32-159 frames) → re-enter from the right with a random type when the delay elapses. The same
   delay is armed when a cone is *collected* (in `CheckCollision`). So entities are spaced out and
   desync (random delays + staggered start). `SetRespawnDelay` arms the timer. RAM: `entDelay[6]`.
+- (b) ✅ **Score-based sub-pixel speed-up.** `scrollSpeed` is a **1/32-px fixed-point** speed
+  (`SPEED_BASE=32` = 1.0 px/frame). Each frame `total = scrollFrac + scrollSpeed`; the step is
+  `total >> 5` whole pixels and the low 5 bits carry as the fraction. `UpdateWorld` runs the
+  gap+entity scroll `scrollStep` times (fall-through once/frame). `scrollSpeed` ramps
+  `+SPEED_INC (4 = +0.125 px)` per cone up to `SPEED_MAX (128 = 4 px/frame)` — kept ≤ the fall
+  window so falls still register, and `SPEED_MAX ≤ 224` so `scrollFrac+scrollSpeed` fits 8 bits.
+  No multiply/divide. Reset to base each game. RAM: `scrollSpeed`, `scrollFrac`, `scrollStep`.
+  - *Earlier bug:* the first cut used `step = 1 + carry`, which an 8-bit accumulator caps at
+    2 px/frame; and a large `SPEED_INC` near a too-high `SPEED_MAX` overflowed `scrollSpeed`
+    (`256 → 0`, "slows down again"). The fixed-point `>> n` scheme fixes both. The fraction
+    resolution (1/16, 1/32, …) is just a tuning knob — it doesn't change motion smoothness
+    (always whole px/frame), only how finely the average speed can ramp.
 - (b) **Speed up with score, at sub-pixel resolution.** Scroll speed should increase as the
   score climbs, in **fractional pixels** for smoothness, kept performant with **shifts** (no
   multiply/divide). Plan: a fixed-point scroll accumulator per object (e.g. 8.8 — integer +
