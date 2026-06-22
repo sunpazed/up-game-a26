@@ -130,11 +130,11 @@ Proposed layout (refine during implementation):
   skull → game over (freeze + red tint + restart on fire).
 - Score HUD display is M5; for now the cone's effect is it disappearing, the skull's is game over.
 
-### M5 — HUD, power-up, game-over/reset  🟡 HUD score IMPLEMENTED (pending emu check)
-- ✅ **6-digit BCD score** in the dedicated top HUD region, 48-px digit path.
+### M5 — HUD, power-up, game-over/reset  🟡 score + GAME OVER + HI done; power-up pending
+- ✅ Score shown as `__nnnn` (4 digits) via the 48-px glyph kernel.
+- ✅ GAME OVER: alternates "GAMEOVER" text and "HInnnn" (high score) on the red freeze.
+- ✅ HI-score tracked (max on death), persists across restarts via a soft-reset (NewGame).
 - ⬜ Power-up that clears skulls.
-- ⬜ GAME OVER text (currently a red-screen freeze placeholder).
-- ⬜ HI-score (top-right).
 
 ## 5. Example References
 - Horizontal positioning: `examples/example.asm` (`SetHorizPos`), `examples/punchout.asm`
@@ -430,8 +430,34 @@ WSYNC-counted: VSYNC 3 + VBLANK 36 + HUD 12 + bands 180 + overscan(TIM64T ~30) =
 
 **RAM added:** `Digit0[12]`, `loopCnt`.
 
-**Tunable / not-yet-polished:** score sits center-ish (`SCORE_SLEEP=36`, the reference value) —
-top-left placement + a "HI" score are follow-ups; player x via `PLAYER_SLEEP`.
+**Tunable / not-yet-polished:** score sits center-ish (`SCORE_SLEEP=36`, the reference value);
+player x via `PLAYER_SLEEP`.
+
+### M5 (part 2) — repurposed HUD: 4-digit score, GAME OVER text, HI score
+
+The 6-glyph kernel is reused for three displays (each just a different set of `Digit0..5`
+pointers, all into the one page-aligned `FontTable`):
+- **Playing:** `__nnnn` — leftmost two glyphs are `BlankGlyph`, the rest are the low 4 BCD score
+  digits.
+- **Game over:** `GetDigitPtrs` alternates between **"GAMEOVER"** (6 user-supplied glyphs
+  packing 8 letters into 48px) and **"HI" + 4-digit high score** (`LetterH`/`LetterI` +
+  `hiScore` digits). `goCnt` cycles 0-239 in overscan; 0-119 shows GAMEOVER, 120-239 shows
+  HInnnn (≈2 s each). The user's GAMEOVER bytes were top-row-first, so each glyph's 8 bytes are
+  reversed to the kernel's bottom-row-first order.
+
+**High score + soft reset.** `hiScore[2]` (4-digit BCD) is updated to `max(hiScore, score)` on
+death (in `CheckCollision`'s skull path). To keep it across deaths, init was split: **`Reset`**
+does the one-time TIA setup + `hiScore=0` (via `CLEAN_START`) + the PRNG seed; **`NewGame`**
+resets only the per-round state (player, entities, gaps, score, `gameState`, `COLUBK`) and is
+where the game-over restart jumps — so `hiScore` and `rng` persist.
+
+**RAM added:** `hiScore[2]`, `frameCnt`, `BlankGlyph`/`GameOverGlyphs`/`LetterH`/`LetterI` (ROM).
+
+### Steering: user-supplied GAMEOVER glyphs
+
+The user supplied the 6-glyph "GAMEOVER" bitmap (48×8, 8 letters packed across the 6 slots) and
+confirmed soft-reset for HI persistence — the elegant fix for fitting an 8-letter word in a
+6-glyph region.
 
 ## 9. Steering Log (user-directed decisions)
 

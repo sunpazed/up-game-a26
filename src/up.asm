@@ -97,7 +97,9 @@ entJmpLo        ds 6    ; per-floor precomputed strobe-table entry (low byte)
 entPtr          ds 2    ; pointer to the current band's entity sprite
 rng             ds 1    ; PRNG state (LFSR)
 gameState       ds 1    ; 0 = playing, 1 = game over
-scoreBCD        ds 3    ; 6-digit BCD score
+scoreBCD        ds 3    ; BCD score (low 4 digits shown)
+hiScore         ds 2    ; 4-digit BCD high score (persists across games)
+goCnt           ds 1    ; game-over text cycle: 0-119 GAMEOVER, 120-239 HInnnn
 Digit0          ds 12   ; 6 font pointers (Digit0..Digit5) for the score kernel
 loopCnt         ds 1    ; scanline counter inside DrawDigits
 
@@ -108,8 +110,9 @@ loopCnt         ds 1    ; scanline counter inside DrawDigits
 	org $f000
 
 Reset
-	CLEAN_START
+	CLEAN_START             ; zeros all RAM (hiScore starts at 0)
 
+	; --- one-time setup (survives a soft restart) ---
 	; Solid, full-width playfield (held for the whole program)
 	lda #$F0
 	sta PF0
@@ -119,18 +122,41 @@ Reset
 	lda #0
 	sta CTRLPF              ; players/missiles draw over the playfield
 
-	lda #COL_BG
-	sta COLUBK
-
 	; Missile 0 is GAP_WIDTH wide (player stays normal width)
 	lda #$30
 	sta NUSIZ0
 
-	; Initial game state: player on the bottom tier
+	; Default every motion register to $80, the cycle-74 HMOVE "no motion"
+	; value: the per-band cycle-74 HMOVEs re-apply ALL HMxx, and $00 there
+	; is NOT zero motion (it would walk the object); $80 (NO_MO_74) holds
+	; non-targeted objects still. The player P0 is (re)placed each frame in
+	; the HUD transition; gaps/entities are placed per band.
+	sta HMCLR
+	lda #$80
+	sta HMP0
+	sta HMM0
+	sta HMP1
+
+	lda #1
+	sta rng                 ; PRNG seed (set once; advances across games)
+
+;-------------------------------------------------------------
+; NewGame - (re)start a round. Reached from Reset and from a game-over
+; restart. Resets all gameplay state but NOT hiScore (or rng).
+;-------------------------------------------------------------
+NewGame
+	lda #COL_BG
+	sta COLUBK              ; clear any game-over red tint
+
 	lda #5
-	sta playerFloor
+	sta playerFloor         ; player starts on the bottom tier
 	lda #0
 	sta btnPrev
+	sta gameState
+	sta goCnt
+	sta scoreBCD+0
+	sta scoreBCD+1
+	sta scoreBCD+2
 
 	; Staggered initial gap positions (floor 5 has no gap)
 	lda #140
@@ -147,8 +173,6 @@ Reset
 	sta gapX+5
 
 	; Entities: staggered positions and initial types (one per platform)
-	lda #1
-	sta rng                 ; PRNG seed (must be non-zero)
 	lda #ENT_CONE
 	sta entType+0
 	lda #ENT_SKULL
@@ -174,18 +198,7 @@ Reset
 	lda #105
 	sta entX+5
 
-	; Default every motion register to $80, the cycle-74 HMOVE "no motion"
-	; value: the per-band cycle-74 HMOVEs re-apply ALL HMxx, and $00 there
-	; is NOT zero motion (it would walk the object); $80 (NO_MO_74) holds
-	; non-targeted objects still. The player P0 is (re)placed each frame in
-	; the HUD transition; gaps/entities are placed per band.
-	sta HMCLR
-	lda #$80
-	sta HMP0
-	sta HMM0
-	sta HMP1
-
-	jsr GetDigitPtrs        ; seed score pointers (score=0) for the first HUD
+	jsr GetDigitPtrs        ; seed digit pointers for the first HUD
 
 ;-------------------------------------------------------------
 ; Main frame loop
@@ -373,6 +386,14 @@ BandLoop
 .gsFrozen
 	jsr CheckRestart        ; world frozen; fresh fire press restarts
 .gsAfter
+	; game-over text cycle: 240-frame period (120 GAMEOVER + 120 HInnnn)
+	inc goCnt
+	lda goCnt
+	cmp #240
+	bcc .goCntOk
+	lda #0
+	sta goCnt
+.goCntOk
 
 	; Precompute each gap's quickPos + strobe-table entry (in overscan),
 	; so the visible kernel positions in one fixed-time scanline.
@@ -582,7 +603,20 @@ CheckCollision
 	lda #1
 	sta gameState
 	lda #COL_GAMEOVER
-	sta COLUBK              ; red tint; Reset restores COL_BG on restart
+	sta COLUBK              ; red tint; NewGame restores COL_BG on restart
+	; high score = max(hiScore, score) over the low 4 digits
+	lda scoreBCD+1
+	cmp hiScore+1
+	bcc .ccDone             ; score's high pair < hiScore's
+	bne .ccNewHi            ; score's high pair > hiScore's
+	lda scoreBCD+0
+	cmp hiScore+0
+	bcc .ccDone             ; equal high pair, low pair lower
+.ccNewHi
+	lda scoreBCD+0
+	sta hiScore+0
+	lda scoreBCD+1
+	sta hiScore+1
 .ccDone
 	rts
 
@@ -596,7 +630,7 @@ CheckRestart
 	ldx #1
 	lda btnPrev
 	bne .crStore            ; held since last frame -> no edge
-	jmp Reset               ; fresh press -> restart the game
+	jmp NewGame             ; fresh press -> restart (keeps hiScore)
 .crStore
 	stx btnPrev
 	rts
@@ -636,15 +670,19 @@ CalcQuickPos
 ;   (After examples/6-digit-score.asm.)
 ;-------------------------------------------------------------
 GetDigitPtrs
-	ldx #0                  ; leftmost digit
-	ldy #2                  ; most-significant BCD byte first
+	lda gameState
+	bne .goText
+	; --- playing: score "__nnnn" (blank leftmost two, low 4 BCD digits) ---
+	lda #<BlankGlyph
+	sta Digit0+0
+	sta Digit0+2
+	ldx #4
+	ldy #1
 .gdpLoop
 	lda scoreBCD,y
 	and #$f0                ; high nibble * 16
 	lsr                     ; -> * 8
 	sta Digit0,x
-	lda #>FontTable
-	sta Digit0+1,x
 	inx
 	inx
 	lda scoreBCD,y
@@ -653,12 +691,65 @@ GetDigitPtrs
 	asl
 	asl                     ; * 8
 	sta Digit0,x
-	lda #>FontTable
-	sta Digit0+1,x
 	inx
 	inx
 	dey
 	bpl .gdpLoop
+	jmp .setHi
+.goText
+	; --- game over: alternate "GAMEOVER" and "HInnnn" every 120 frames ---
+	lda goCnt
+	cmp #120
+	bcs .goHi               ; goCnt 120-239 -> HInnnn
+	; "GAMEOVER" packed across the 6 glyph slots
+	lda #<GameOverGlyphs
+	sta Digit0+0
+	clc
+	adc #8
+	sta Digit0+2
+	adc #8
+	sta Digit0+4
+	adc #8
+	sta Digit0+6
+	adc #8
+	sta Digit0+8
+	adc #8
+	sta Digit0+10
+	jmp .setHi
+.goHi
+	; "HI" + the 4-digit high score
+	lda #<LetterH
+	sta Digit0+0
+	lda #<LetterI
+	sta Digit0+2
+	ldx #4
+	ldy #1
+.goHiLoop
+	lda hiScore,y
+	and #$f0
+	lsr
+	sta Digit0,x
+	inx
+	inx
+	lda hiScore,y
+	and #$0f
+	asl
+	asl
+	asl
+	sta Digit0,x
+	inx
+	inx
+	dey
+	bpl .goHiLoop
+.setHi
+	; every glyph lives in the FontTable page, so all hi bytes are the same
+	lda #>FontTable
+	sta Digit0+1
+	sta Digit0+3
+	sta Digit0+5
+	sta Digit0+7
+	sta Digit0+9
+	sta Digit0+11
 	rts
 
 ;-------------------------------------------------------------
@@ -828,6 +919,25 @@ FontTable
 	.byte $00,$18,$18,$18,$0c,$06,$63,$7f
 	.byte $00,$3e,$43,$4f,$3c,$72,$62,$3c
 	.byte $00,$3c,$06,$03,$3f,$63,$63,$3e
+BlankGlyph
+	.byte $00,$00,$00,$00,$00,$00,$00,$00
+
+; "GAMEOVER" packed across 6 glyph slots (8 letters in 48px). User-supplied,
+; with each glyph's 8 bytes reversed to the kernel's bottom-row-first order.
+GameOverGlyphs
+	.byte $00,$79,$cd,$cd,$dd,$c1,$c1,$78
+	.byte $00,$b6,$b6,$f6,$b7,$b7,$b6,$e4
+	.byte $00,$37,$36,$b6,$f7,$76,$36,$17
+	.byte $00,$9c,$36,$36,$b6,$36,$36,$9c
+	.byte $00,$23,$73,$db,$db,$db,$db,$db
+	.byte $00,$db,$1b,$1e,$db,$1b,$1b,$de
+
+; "H" and "I" for the HInnnn high-score frame (digit-font orientation:
+; byte order is bottom row first, top row last; 7px wide).
+LetterH
+	.byte $00,$63,$63,$63,$7f,$63,$63,$63
+LetterI
+	.byte $00,$3c,$18,$18,$18,$18,$18,$3c
 
 ;-------------------------------------------------------------
 ; DrawDigits - render the 48x8 score from Digit0..Digit5 pointers.
