@@ -118,6 +118,7 @@ entQuick        ds 6    ; per-floor precomputed quickPos for the entity (GRP1)
 entJmpLo        ds 6    ; per-floor precomputed strobe-table entry (low byte)
 entPtr          ds 2    ; pointer to the current band's entity sprite
 rng             ds 1    ; PRNG state (LFSR)
+frameCnt        ds 1    ; free-running frame counter (never reset; RNG reseed)
 gameState       ds 1    ; 0 = playing, 1 = game over
 scoreBCD        ds 3    ; BCD score (low 4 digits shown)
 hiScore         ds 2    ; 4-digit BCD high score (persists across games)
@@ -207,42 +208,32 @@ NewGame
 	lda #0
 	sta gapX+5
 
-	; Entities: staggered positions and initial types (one per platform)
-	lda #ENT_CONE
-	sta entType+0
-	lda #ENT_SKULL
-	sta entType+1
-	lda #ENT_CONE
-	sta entType+2
-	lda #ENT_CONE
-	sta entType+3
-	lda #ENT_SKULL
-	sta entType+4
-	lda #ENT_CONE
-	sta entType+5
-	lda #150
-	sta entX+0
-	lda #95
-	sta entX+1
-	lda #125
-	sta entX+2
-	lda #65
-	sta entX+3
-	lda #35
-	sta entX+4
-	lda #105
-	sta entX+5
+	; Reseed the PRNG from the free-running frame counter (mixed with whatever
+	; state carried over), so each restart differs -- the human-variable delay
+	; before pressing fire makes frameCnt effectively random. Keep it non-zero
+	; (an all-zero LFSR is a dead state).
+	lda rng
+	eor frameCnt
+	bne .seedOk
+	lda #1
+.seedOk
+	sta rng
 
-	; entities start normal (not sliding); seed entDrawLo for the first frame's
-	; kernel (the overscan precompute refreshes it every frame after that).
+	; Start with EMPTY platforms: every entity begins hidden and slides in from
+	; the right edge on a staggered delay (via the normal respawn path, which
+	; rolls a random type and clears gaps). This guarantees reaction time on any
+	; floor the player jumps to -- nothing is ever sitting in the jump path at
+	; the fixed player x. entX is set when each one spawns; entDrawLo = blank.
 	ldx #5
 .ngEnt
 	lda #0
+	sta entType,x           ; hidden -> .entWaiting spawns it (slide-in)
 	sta entSlide,x
 	sta entRefp,x
-	ldy entType,x
-	lda EntSprLo,y
+	lda #<ZeroSprite
 	sta entDrawLo,x
+	lda InitDelayTab,x      ; staggered first-spawn delay per floor
+	sta entDelay,x
 	dex
 	bpl .ngEnt
 
@@ -446,6 +437,8 @@ BandLoop
 	sta VBLANK
 	lda #35
 	sta TIM64T
+
+	inc frameCnt            ; free-running frame timer (all states) for RNG reseed
 
 	lda gameState
 	bne .gsFrozen
@@ -1045,6 +1038,10 @@ SlideBaseLo
 ; Respawn type roll, indexed by (rng & 3): 50/50 cone / skull
 EntTypeRoll
 	.byte ENT_CONE, ENT_CONE, ENT_SKULL, ENT_SKULL
+; Staggered first-spawn delay per floor (frames) so the empty start fills in
+; gradually from the right rather than all at once.
+InitDelayTab
+	.byte 16, 28, 40, 52, 64, 76
 
 ;-------------------------------------------------------------
 ; Missile-0 cycle-74 strobe table (must stay within one page).

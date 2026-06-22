@@ -632,5 +632,11 @@ materially steered the implementation. Recording the key interventions:
   ("Perhaps we can use the hardware flip to save ram?"). It worked: `REFP1` lets one `asl` table
   serve both edges (sprites are symmetric). Also chose to **defer the cone/skull animation frames**
   in favour of the slide, and to **land the left edge first, then the right**.
+- **QoL: better RNG + fair start.** Flagged that restarts felt identical and **suggested seeding
+  the PRNG from a global frame timer**. Added a free-running `frameCnt` and reseed `rng ⊕ frameCnt`
+  on each `NewGame`. Then diagnosed the real start-death cause: the player begins on the bottom
+  floor and the first button press jumps them *into* the fixed object on the floor above. Fix:
+  start with **empty platforms** — every entity begins hidden and slides in from the right on a
+  staggered delay (`InitDelayTab`), so nothing is ever parked in the jump path.
 - **Process: keep the `.md` docs updated between milestones**, with detailed implementation
   writeups — and maintain this steering log.
