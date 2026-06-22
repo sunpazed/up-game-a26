@@ -17,7 +17,7 @@ This project is a DASM Atari 2600 port of the JavaScript game `UP 1 WAY`
   (edge-to-edge cycle-74 positioning, no comb, stable player).
 - **M4 — Entities (cones/skulls) + collision**: ✅ done — cone → +score, skull → game over.
 - **M5 — HUD**: ✅ done — score (`__nnnn`), GAME OVER text, persistent HI-score.
-- **M6 — Spawn spacing + score-based speed-up** (sub-pixel via shifts): ⬜ next.
+- **M6 — Spawn spacing + sub-pixel speed-up + spawn-clear-of-gaps**: ✅ done.
 - **M7 — Object animations** (+ sprite masking for edge scrolling): ⬜.
 - **M8 — Power-up** (clears skulls): ⬜.
 
