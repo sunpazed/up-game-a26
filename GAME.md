@@ -567,6 +567,35 @@ The user supplied the 6-glyph "GAMEOVER" bitmap (48×8, 8 letters packed across 
 confirmed soft-reset for HI persistence — the elegant fix for fitting an 8-letter word in a
 6-glyph region.
 
+### M7 — player run-cycle + edge slide
+- **Player animation:** two `GRP0` frames (`PlayerSprite0/1`, same page, `PlayerFrameLo[animFrame]`).
+  `AnimatePlayer` (overscan) swaps frames on a countdown that shortens with speed
+  (`ANIM_BASE − scrollSpeed>>3`). Frozen on game over.
+- **Edge slide (sprite masking):** masking alone only shrinks a sprite in place, so a true slide
+  needs the bitmap *shifted*. Pre-shifted `asl×1..7` tables (`ConeSlide`/`SkullSlide`, page `$f5`,
+  macro-generated from the `CONEn`/`SKULLn` row symbols). Left slide-out: hold `x=0`, step `asl`
+  up. Right slide-in: hold `x=152`, `REFP1=1` (hardware reflect — the *same* tables serve the
+  mirror edge since the sprites are symmetric), step `asl` down. State in `entSlide[6]`
+  (`0` normal / `1..7` out / `$80|N` in); per-floor `entDrawLo`/`entRefp` resolved in the precompute,
+  the kernel just loads them; `REFP1` cleared before `DrawDigits` (GRP1 is shared with the score).
+
+### Polish / QoL (post-M6)
+- **Sound:** frame-timed engine on TIA channel 0 (`UpdateSound`, `sfxId`/`sfxTimer`) — jump (rising
+  tone), drop (falling), cone (two-note coin), death (two white-noise bursts). Triggered at the
+  event sites; silenced at boot and on restart. `UpdateSound`+`GetDigitPtrs` live in the trailing
+  ROM gap after `DrawDigits` to keep the `$f000-$f500` code region under the `PosTblM0` org.
+- **Randomisation:** free-running `frameCnt`; `NewGame` reseeds `rng = rng ⊕ frameCnt` (human-variable
+  restart delay = good entropy). Random entity types + random first-spawn delays. Gap layout
+  randomised per floor and **re-rolled to keep ≥`GAP_MIN_SEP`(24)px from the floor below**, so holes
+  never stack and the pattern isn't a diagonal. Gaps still re-enter at the right edge on wrap (clean
+  slide-in); the variety is in the start layout.
+- **Fair start:** platforms begin empty; entities slide in from the right, so nothing is parked in
+  the player's jump path at game start.
+- **Timing:** the scroll is **O(1)** — gaps/entities/slide/respawn counters all advance by
+  `scrollStep` in a single pass instead of a per-pixel loop. This keeps the overscan cost flat at
+  any speed and fixed a high-speed screen roll (the old loop did up to 4× work and overran the
+  overscan timer, worst on the heavier cone-pickup frame).
+
 ## 9. Steering Log (user-directed decisions)
 
 This project is being built collaboratively; the user (an experienced 2600/asm developer) has
@@ -636,8 +665,8 @@ materially steered the implementation. Recording the key interventions:
   the PRNG from a global frame timer**. Added a free-running `frameCnt` and reseed `rng ⊕ frameCnt`
   on each `NewGame`. Then diagnosed the real start-death cause: the player begins on the bottom
   floor and the first button press jumps them *into* the fixed object on the floor above. Fix:
-  start with **empty platforms** — every entity begins hidden and slides in from the right on a
-  staggered delay (`InitDelayTab`), so nothing is ever parked in the jump path.
+  start with **empty platforms** — every entity begins hidden and slides in from the right, so
+  nothing is ever parked in the jump path.
 - **Asked for 4 sound effects** (jump rising / drop falling / cone coin / death noise). Added a
   small frame-timed SFX engine on TIA channel 0 (`UpdateSound`, `sfxId`/`sfxTimer`), triggered at
   the jump/fall/cone/death sites. (Relocating `UpdateSound`+`GetDigitPtrs` to the trailing ROM gap
@@ -647,5 +676,18 @@ materially steered the implementation. Recording the key interventions:
   timer (worst on the heavier cone-pickup frame). Fix: rewrote the scroll as **O(1)** (subtract
   `scrollStep` once for gaps/entities/slide/respawn counters) so overscan cost is flat regardless
   of speed. User then tuned `SPEED_INC=2`, `SPEED_MAX=96`.
+- **Asked to randomise the gap (slot) layout, which never changed run-to-run** — and iteratively
+  steered it to the right solution:
+  1. First attempt also randomised the wrap re-entry x; user: *"the gaps randomly pop up on the
+     screen"* → reverted to always re-entering at the right edge (`GAP_WRAP`), randomising only
+     the **start** layout.
+  2. With independent random gaps, *"the holes sometimes are directly over one another"* (chained
+     falls). Added a 32px staircase + jitter — but user spotted it *"still looks deterministic"*
+     (the staircase was monotonic = a diagonal).
+  3. Final: each floor's start gap is fully random and **re-rolled if within `GAP_MIN_SEP`=24 of
+     the floor below** — non-monotonic (no diagonal) yet never stacking. Candidates kept in 16..143
+     so the separation holds as they scroll past the wrap zone.
+  Also noticed the **entities entered in a rigid diagonal** (uniform spawn stagger) → replaced with
+  random first-spawn delays so they arrive at varied times.
 - **Process: keep the `.md` docs updated between milestones**, with detailed implementation
   writeups — and maintain this steering log.

@@ -18,8 +18,18 @@ This project is a DASM Atari 2600 port of the JavaScript game `UP 1 WAY`
 - **M4 — Entities (cones/skulls) + collision**: ✅ done — cone → +score, skull → game over.
 - **M5 — HUD**: ✅ done — score (`__nnnn`), GAME OVER text, persistent HI-score.
 - **M6 — Spawn spacing + sub-pixel speed-up + spawn-clear-of-gaps**: ✅ done.
-- **M7 — Object animations** (+ sprite masking for edge scrolling): ⬜.
+- **M7 — Object animations + edge slide**: ✅ player run-cycle (speed-linked), and entities
+  slide in/out at both screen edges (pre-shifted sprites + hardware reflect). Cone/skull
+  animation frames deferred.
 - **M8 — Power-up** (clears skulls): ⬜.
+
+### Polish / QoL (post-M6)
+- **Sound**: 4 effects on TIA channel 0 — jump (rising), drop (falling), cone (coin), death (noise).
+- **Randomisation**: PRNG reseeded from a free-running frame counter at restart; random entity
+  types + spawn times; random non-stacking gap layout per game (re-rolled for ≥24px separation
+  between adjacent floors). Fair empty start (entities slide in, never parked in the jump path).
+- **Performance**: scroll is O(1) (advance by `scrollStep` in one pass), so frame timing stays
+  flat at any speed — fixed a high-speed screen roll.
 
 ## Kernel Architecture
 

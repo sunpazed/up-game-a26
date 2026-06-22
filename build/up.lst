@@ -435,117 +435,121 @@
      52  0000 ????	       00 06	   BAND_GREY  =	6
      53  0000 ????
      54  0000 ????	       00 08	   GAP_WIDTH  =	8	; missile gap width (NUSIZ0 = $30)
-     55  0000 ????	       00 9f	   GAP_WRAP   =	159	; respawn x at the right edge (cycle-74 reaches 0..159)
-     56  0000 ????	       00 0e	   FALL_LO    =	14	; gap-under-player window [FALL_LO..FALL_HI], centred on
-     57  0000 ????	       00 12	   FALL_HI    =	18	;   ~15 (measured: gap fully under the player at gapX~15)
-     58  0000 ????
-     59  0000 ????						; entities (GRP1): one per platform, scroll right-to-left
-     60  0000 ????	       00 01	   ENT_CONE   =	1	; gold collectible (+1 score)
-     61  0000 ????	       00 02	   ENT_SKULL  =	2	; red hazard
-     62  0000 ????	       00 2c	   COL_CONE   =	$2C	; gold / yellow
-     63  0000 ????	       00 46	   COL_SKULL  =	$46	; red
-     64  0000 ????	       00 98	   ENT_WRAP   =	152	; respawn x. Kept <=152 so the 8px GRP1 object never
-     65  0000 ????						; reaches the wrap zone (153-159): an object there would
-     66  0000 ????						; mod-160 wrap part of the sprite to the LEFT edge,
-     67  0000 ????						; flashing the freshly-rerolled type at pixel 0.
-     68  0000 ????	       00 20	   ENT_DELAY_MIN =	32	; off-screen wait before an entity re-enters:
-     69  0000 ????	       00 7f	   ENT_DELAY_MASK =	$7f	;   ENT_DELAY_MIN + (rng & MASK) = 32..159 frames
-     70  0000 ????	       00 91	   GAP_SPAWN_CLEAR =	145	; don't spawn an entity while this floor's gap is >= here
-     71  0000 ????	       00 10	   ENT_DEFER  =	16	;   (it would overlap the spawn x); recheck after this many frames
-     72  0000 ????
-     73  0000 ????						; Scroll speed in 1/32-px fixed point. Per-frame step = (scrollFrac + scrollSpeed)
-     74  0000 ????						; >> 5 whole pixels; the low 5 bits carry as the fraction. Keep SPEED_MAX <= 224
-     75  0000 ????						; so scrollFrac (<=31) + scrollSpeed never overflows 8 bits.
-     76  0000 ????	       00 20	   SPEED_BASE =	32	; base speed (= 1.0 px/frame)
-     77  0000 ????	       00 02	   SPEED_INC  =	2	; per cone (= +0.125 px/frame; ~24 cones to top speed)
-     78  0000 ????	       00 60	   SPEED_MAX  =	96	; cap (= 4.0 px/frame; <= the fall window so falls hold)
-     79  0000 ????
-     80  0000 ????						; Player run-cycle animation. The frame swaps every animTimer frames, and the
-     81  0000 ????						; interval shortens with scroll speed: interval = ANIM_BASE - (scrollSpeed >> 3).
-     82  0000 ????						; (scrollSpeed 32..128 -> interval 18..6 frames; keep ANIM_BASE > SPEED_MAX>>3.)
-     83  0000 ????	       00 16	   ANIM_BASE  =	22
-     84  0000 ????
-     85  0000 ????	       00 42	   COL_GAMEOVER =	$42	; red background tint while game over
-     86  0000 ????
-     87  0000 ????						; HUD score (48-pixel 6-digit method, after examples/6-digit-score.asm)
-     88  0000 ????	       00 03	   THREE_COPIES =	%011	; NUSIZ: 3 close copies (P0 + P1 interleaved = 6 digits)
-     89  0000 ????	       00 00	   SCORE_COL  =	$00	; black digits on the grey background
-     90  0000 ????	       00 24	   SCORE_SLEEP =	36	; positions the score block (RESP0/RESP1 timing)
-     91  0000 ????	       00 17	   PLAYER_SLEEP =	23	; re-strobes the player P0 near PLAYER_X after the HUD
-     92  0000 ????
-     93  0000 ????						; Sound effects (TIA channel 0). A frame-timed engine plays one SFX at a time:
-     94  0000 ????						; sfxId picks the sound, sfxTimer counts its remaining frames (see UpdateSound).
-     95  0000 ????	       00 01	   SFX_JUMP   =	1	; rising tone
-     96  0000 ????	       00 02	   SFX_DROP   =	2	; falling tone
-     97  0000 ????	       00 03	   SFX_CONE   =	3	; two-note coin pickup
-     98  0000 ????	       00 04	   SFX_DEATH  =	4	; two white-noise bursts
-     99  0000 ????	       00 0c	   JUMP_DUR   =	12
-    100  0000 ????	       00 0c	   DROP_DUR   =	12
-    101  0000 ????	       00 10	   CONE_DUR   =	16
-    102  0000 ????	       00 14	   DEATH_DUR  =	20
-    103  0000 ????	       00 04	   SFX_TONE   =	$04	; pure-tone waveform (AUDC0)
-    104  0000 ????	       00 08	   SFX_NOISE  =	$08	; white-noise waveform (AUDC0)
-    105  0000 ????	       00 0a	   SFX_VOL    =	$0A	; SFX volume (AUDV0, 0-15)
-    106  0000 ????
-    107  0000 ????				      MAC	trigger_sfx
-    108  0000 ????				      lda	#{1}
-    109  0000 ????				      sta	sfxId
-    110  0000 ????				      lda	#{2}
-    111  0000 ????				      sta	sfxTimer
-    112  0000 ????				      ENDM		; {1} = SFX id, {2} = duration in frames
-    113  0000 ????
-    114  0000 ????						;-------------------------------------------------------------
-    115  0000 ????						; RAM
-    116  0000 ????						;-------------------------------------------------------------
-    117 U00ec ????				      SEG.U	vars
-    118 U0080					      org	$80
-    119 U0080
-    120 U0080		       00	   playerFloor ds	1	; 0 = top tier .. 5 = bottom tier
-    121 U0081		       00	   playerBandCount ds	1	; bandCount value at which to draw the player
-    122 U0082		       00	   btnPrev    ds	1	; fire button state last frame (edge detect)
-    123 U0083		       00	   bandCount  ds	1	; bands remaining in the visible kernel
-    124 U0084		       00	   curFloor   ds	1	; floor index of the band being drawn
-    125 U0085		       00	   tempOne    ds	1	; scratch for the fast divide in CalcQuickPos
-    126 U0086		       00	   tempFloor  ds	1	; scratch floor index across CalcQuickPos
-    127 U0087		       00 00	   sprPtr     ds	2	; pointer to current band's sprite data
-    128 U0089		       00 00	   posJmp     ds	2	; indirect pointer into the missile strobe table
-    129 U008b		       00 00 00 00*gapX       ds	6	; per-floor gap x position (floor 5 unused/no gap)
-    130 U0091		       00 00 00 00*gapQuick   ds	6	; per-floor precomputed quickPos (HMM0 fine | delay count)
-    131 U0097		       00 00 00 00*posJmpLo   ds	6	; per-floor precomputed strobe-table entry (low byte)
-    132 U009d		       00 00 00 00*entType    ds	6	; per-floor entity: 0 none/hidden, 1 cone, 2 skull
-    133 U00a3		       00 00 00 00*entX       ds	6	; per-floor entity x position
-    134 U00a9		       00 00 00 00*entDelay   ds	6	; per-floor frames left to wait off-screen before respawn
-    135 U00af		       00	   scrollSpeed ds	1	; fractional scroll speed (ramps with score)
-    136 U00b0		       00	   scrollFrac ds	1	; fixed-point fractional accumulator
-    137 U00b1		       00	   scrollStep ds	1	; whole pixels to scroll this frame
-    138 U00b2		       00 00 00 00*entQuick   ds	6	; per-floor precomputed quickPos for the entity (GRP1)
-    139 U00b8		       00 00 00 00*entJmpLo   ds	6	; per-floor precomputed strobe-table entry (low byte)
-    140 U00be		       00 00	   entPtr     ds	2	; pointer to the current band's entity sprite
-    141 U00c0		       00	   rng	      ds	1	; PRNG state (LFSR)
-    142 U00c1		       00	   frameCnt   ds	1	; free-running frame counter (never reset; RNG reseed)
-    143 U00c2		       00	   sfxId      ds	1	; sound effect currently playing (0 = none)
-    144 U00c3		       00	   sfxTimer   ds	1	; frames left in the current sound effect
-    145 U00c4		       00	   gameState  ds	1	; 0 = playing, 1 = game over
-    146 U00c5		       00 00 00    scoreBCD   ds	3	; BCD score (low 4 digits shown)
-    147 U00c8		       00 00	   hiScore    ds	2	; 4-digit BCD high score (persists across games)
-    148 U00ca		       00	   goCnt      ds	1	; game-over text cycle: 0-119 GAMEOVER, 120-239 HInnnn
-    149 U00cb		       00	   animFrame  ds	1	; player run-cycle frame (0 or 1)
-    150 U00cc		       00	   animTimer  ds	1	; frames left until the next player-frame swap
-    151 U00cd		       00 00 00 00*entSlide   ds	6	; per-floor edge-slide state: 0 = normal; 1..7 = sliding
-    152 U00d3							;   OUT the LEFT edge (asl amount); $80|N = sliding IN
-    153 U00d3							;   the RIGHT edge (asl amount N, reflected via REFP1)
-    154 U00d3		       00 00 00 00*entDrawLo  ds	6	; per-floor resolved entity sprite low byte (base or shift)
-    155 U00d9		       00 00 00 00*entRefp    ds	6	; per-floor REFP1 value ($08 while sliding in, else $00)
-    156 U00df		       00 00 00 00*Digit0     ds	12	; 6 font pointers (Digit0..Digit5) for the score kernel
-    157 U00eb		       00	   loopCnt    ds	1	; scanline counter inside DrawDigits
-    158 U00ec
-    159 U00ec							;-------------------------------------------------------------
-    160 U00ec							; ROM
-    161 U00ec							;-------------------------------------------------------------
-    162  10000 ????				       SEG	code
-    163  f000					      org	$f000
-    164  f000
-    165  f000				   Reset
+     55  0000 ????	       00 9f	   GAP_WRAP   =	159	; respawn x at the right edge (cycle-74 reaches 0..159).
+     56  0000 ????						; Gaps always re-enter here (slide in from the edge); the
+     57  0000 ????						; per-game variety comes from the randomised START layout.
+     58  0000 ????	       00 18	   GAP_MIN_SEP =	24	; min x-distance between adjacent floors' start gaps, so
+     59  0000 ????						; holes never stack (= drop the player straight through)
+     60  0000 ????	       00 0e	   FALL_LO    =	14	; gap-under-player window [FALL_LO..FALL_HI], centred on
+     61  0000 ????	       00 12	   FALL_HI    =	18	;   ~15 (measured: gap fully under the player at gapX~15)
+     62  0000 ????
+     63  0000 ????						; entities (GRP1): one per platform, scroll right-to-left
+     64  0000 ????	       00 01	   ENT_CONE   =	1	; gold collectible (+1 score)
+     65  0000 ????	       00 02	   ENT_SKULL  =	2	; red hazard
+     66  0000 ????	       00 2c	   COL_CONE   =	$2C	; gold / yellow
+     67  0000 ????	       00 46	   COL_SKULL  =	$46	; red
+     68  0000 ????	       00 98	   ENT_WRAP   =	152	; respawn x. Kept <=152 so the 8px GRP1 object never
+     69  0000 ????						; reaches the wrap zone (153-159): an object there would
+     70  0000 ????						; mod-160 wrap part of the sprite to the LEFT edge,
+     71  0000 ????						; flashing the freshly-rerolled type at pixel 0.
+     72  0000 ????	       00 20	   ENT_DELAY_MIN =	32	; off-screen wait before an entity re-enters:
+     73  0000 ????	       00 7f	   ENT_DELAY_MASK =	$7f	;   ENT_DELAY_MIN + (rng & MASK) = 32..159 frames
+     74  0000 ????	       00 91	   GAP_SPAWN_CLEAR =	145	; don't spawn an entity while this floor's gap is >= here
+     75  0000 ????	       00 10	   ENT_DEFER  =	16	;   (it would overlap the spawn x); recheck after this many frames
+     76  0000 ????
+     77  0000 ????						; Scroll speed in 1/32-px fixed point. Per-frame step = (scrollFrac + scrollSpeed)
+     78  0000 ????						; >> 5 whole pixels; the low 5 bits carry as the fraction. Keep SPEED_MAX <= 224
+     79  0000 ????						; so scrollFrac (<=31) + scrollSpeed never overflows 8 bits.
+     80  0000 ????	       00 20	   SPEED_BASE =	32	; base speed (= 1.0 px/frame)
+     81  0000 ????	       00 02	   SPEED_INC  =	2	; per cone (= +0.125 px/frame; ~24 cones to top speed)
+     82  0000 ????	       00 60	   SPEED_MAX  =	96	; cap (= 4.0 px/frame; <= the fall window so falls hold)
+     83  0000 ????
+     84  0000 ????						; Player run-cycle animation. The frame swaps every animTimer frames, and the
+     85  0000 ????						; interval shortens with scroll speed: interval = ANIM_BASE - (scrollSpeed >> 3).
+     86  0000 ????						; (scrollSpeed 32..128 -> interval 18..6 frames; keep ANIM_BASE > SPEED_MAX>>3.)
+     87  0000 ????	       00 16	   ANIM_BASE  =	22
+     88  0000 ????
+     89  0000 ????	       00 42	   COL_GAMEOVER =	$42	; red background tint while game over
+     90  0000 ????
+     91  0000 ????						; HUD score (48-pixel 6-digit method, after examples/6-digit-score.asm)
+     92  0000 ????	       00 03	   THREE_COPIES =	%011	; NUSIZ: 3 close copies (P0 + P1 interleaved = 6 digits)
+     93  0000 ????	       00 00	   SCORE_COL  =	$00	; black digits on the grey background
+     94  0000 ????	       00 24	   SCORE_SLEEP =	36	; positions the score block (RESP0/RESP1 timing)
+     95  0000 ????	       00 17	   PLAYER_SLEEP =	23	; re-strobes the player P0 near PLAYER_X after the HUD
+     96  0000 ????
+     97  0000 ????						; Sound effects (TIA channel 0). A frame-timed engine plays one SFX at a time:
+     98  0000 ????						; sfxId picks the sound, sfxTimer counts its remaining frames (see UpdateSound).
+     99  0000 ????	       00 01	   SFX_JUMP   =	1	; rising tone
+    100  0000 ????	       00 02	   SFX_DROP   =	2	; falling tone
+    101  0000 ????	       00 03	   SFX_CONE   =	3	; two-note coin pickup
+    102  0000 ????	       00 04	   SFX_DEATH  =	4	; two white-noise bursts
+    103  0000 ????	       00 0c	   JUMP_DUR   =	12
+    104  0000 ????	       00 0c	   DROP_DUR   =	12
+    105  0000 ????	       00 10	   CONE_DUR   =	16
+    106  0000 ????	       00 14	   DEATH_DUR  =	20
+    107  0000 ????	       00 04	   SFX_TONE   =	$04	; pure-tone waveform (AUDC0)
+    108  0000 ????	       00 08	   SFX_NOISE  =	$08	; white-noise waveform (AUDC0)
+    109  0000 ????	       00 0a	   SFX_VOL    =	$0A	; SFX volume (AUDV0, 0-15)
+    110  0000 ????
+    111  0000 ????				      MAC	trigger_sfx
+    112  0000 ????				      lda	#{1}
+    113  0000 ????				      sta	sfxId
+    114  0000 ????				      lda	#{2}
+    115  0000 ????				      sta	sfxTimer
+    116  0000 ????				      ENDM		; {1} = SFX id, {2} = duration in frames
+    117  0000 ????
+    118  0000 ????						;-------------------------------------------------------------
+    119  0000 ????						; RAM
+    120  0000 ????						;-------------------------------------------------------------
+    121 U00ec ????				      SEG.U	vars
+    122 U0080					      org	$80
+    123 U0080
+    124 U0080		       00	   playerFloor ds	1	; 0 = top tier .. 5 = bottom tier
+    125 U0081		       00	   playerBandCount ds	1	; bandCount value at which to draw the player
+    126 U0082		       00	   btnPrev    ds	1	; fire button state last frame (edge detect)
+    127 U0083		       00	   bandCount  ds	1	; bands remaining in the visible kernel
+    128 U0084		       00	   curFloor   ds	1	; floor index of the band being drawn
+    129 U0085		       00	   tempOne    ds	1	; scratch for the fast divide in CalcQuickPos
+    130 U0086		       00	   tempFloor  ds	1	; scratch floor index across CalcQuickPos
+    131 U0087		       00 00	   sprPtr     ds	2	; pointer to current band's sprite data
+    132 U0089		       00 00	   posJmp     ds	2	; indirect pointer into the missile strobe table
+    133 U008b		       00 00 00 00*gapX       ds	6	; per-floor gap x position (floor 5 unused/no gap)
+    134 U0091		       00 00 00 00*gapQuick   ds	6	; per-floor precomputed quickPos (HMM0 fine | delay count)
+    135 U0097		       00 00 00 00*posJmpLo   ds	6	; per-floor precomputed strobe-table entry (low byte)
+    136 U009d		       00 00 00 00*entType    ds	6	; per-floor entity: 0 none/hidden, 1 cone, 2 skull
+    137 U00a3		       00 00 00 00*entX       ds	6	; per-floor entity x position
+    138 U00a9		       00 00 00 00*entDelay   ds	6	; per-floor frames left to wait off-screen before respawn
+    139 U00af		       00	   scrollSpeed ds	1	; fractional scroll speed (ramps with score)
+    140 U00b0		       00	   scrollFrac ds	1	; fixed-point fractional accumulator
+    141 U00b1		       00	   scrollStep ds	1	; whole pixels to scroll this frame
+    142 U00b2		       00 00 00 00*entQuick   ds	6	; per-floor precomputed quickPos for the entity (GRP1)
+    143 U00b8		       00 00 00 00*entJmpLo   ds	6	; per-floor precomputed strobe-table entry (low byte)
+    144 U00be		       00 00	   entPtr     ds	2	; pointer to the current band's entity sprite
+    145 U00c0		       00	   rng	      ds	1	; PRNG state (LFSR)
+    146 U00c1		       00	   frameCnt   ds	1	; free-running frame counter (never reset; RNG reseed)
+    147 U00c2		       00	   sfxId      ds	1	; sound effect currently playing (0 = none)
+    148 U00c3		       00	   sfxTimer   ds	1	; frames left in the current sound effect
+    149 U00c4		       00	   gameState  ds	1	; 0 = playing, 1 = game over
+    150 U00c5		       00 00 00    scoreBCD   ds	3	; BCD score (low 4 digits shown)
+    151 U00c8		       00 00	   hiScore    ds	2	; 4-digit BCD high score (persists across games)
+    152 U00ca		       00	   goCnt      ds	1	; game-over text cycle: 0-119 GAMEOVER, 120-239 HInnnn
+    153 U00cb		       00	   animFrame  ds	1	; player run-cycle frame (0 or 1)
+    154 U00cc		       00	   animTimer  ds	1	; frames left until the next player-frame swap
+    155 U00cd		       00 00 00 00*entSlide   ds	6	; per-floor edge-slide state: 0 = normal; 1..7 = sliding
+    156 U00d3							;   OUT the LEFT edge (asl amount); $80|N = sliding IN
+    157 U00d3							;   the RIGHT edge (asl amount N, reflected via REFP1)
+    158 U00d3		       00 00 00 00*entDrawLo  ds	6	; per-floor resolved entity sprite low byte (base or shift)
+    159 U00d9		       00 00 00 00*entRefp    ds	6	; per-floor REFP1 value ($08 while sliding in, else $00)
+    160 U00df		       00 00 00 00*Digit0     ds	12	; 6 font pointers (Digit0..Digit5) for the score kernel
+    161 U00eb		       00	   loopCnt    ds	1	; scanline counter inside DrawDigits
+    162 U00ec
+    163 U00ec							;-------------------------------------------------------------
+    164 U00ec							; ROM
+    165 U00ec							;-------------------------------------------------------------
+    166  10000 ????				       SEG	code
+    167  f000					      org	$f000
+    168  f000
+    169  f000				   Reset
       0  f000					      CLEAN_START		; zeros all RAM (hiScore starts at 0)
       1  f000		       78		      sei
       2  f001		       d8		      cld
@@ -558,211 +562,185 @@
       9  f008		       48		      pha
      10  f009		       d0 fb		      bne	.CLEAR_STACK
      11  f00b
-    167  f00b
-    168  f00b							; --- one-time setup (survives a soft restart) ---
-    169  f00b							; Solid, full-width playfield (held for the whole program)
-    170  f00b		       a9 f0		      lda	#$F0
-    171  f00d		       85 0d		      sta	PF0
-    172  f00f		       a9 ff		      lda	#$FF
-    173  f011		       85 0e		      sta	PF1
-    174  f013		       85 0f		      sta	PF2
-    175  f015		       a9 00		      lda	#0
-    176  f017		       85 0a		      sta	CTRLPF	; players/missiles draw over the playfield
-    177  f019
-    178  f019							; Missile 0 is GAP_WIDTH wide (player stays normal width)
-    179  f019		       a9 30		      lda	#$30
-    180  f01b		       85 04		      sta	NUSIZ0
-    181  f01d
-    182  f01d							; Default every motion register to $80, the cycle-74 HMOVE "no motion"
-    183  f01d							; value: the per-band cycle-74 HMOVEs re-apply ALL HMxx, and $00 there
-    184  f01d							; is NOT zero motion (it would walk the object); $80 (NO_MO_74) holds
-    185  f01d							; non-targeted objects still. The player P0 is (re)placed each frame in
-    186  f01d							; the HUD transition; gaps/entities are placed per band.
-    187  f01d		       85 2b		      sta	HMCLR
-    188  f01f		       a9 80		      lda	#$80
-    189  f021		       85 20		      sta	HMP0
-    190  f023		       85 22		      sta	HMM0
-    191  f025		       85 21		      sta	HMP1
-    192  f027
-    193  f027		       a9 01		      lda	#1
-    194  f029		       85 c0		      sta	rng	; PRNG seed (set once; advances across games)
-    195  f02b
-    196  f02b		       a9 00		      lda	#0
-    197  f02d		       85 19		      sta	AUDV0	; silence both audio channels at boot
-    198  f02f		       85 1a		      sta	AUDV1
-    199  f031
-    200  f031							;-------------------------------------------------------------
-    201  f031							; NewGame - (re)start a round. Reached from Reset and from a game-over
-    202  f031							; restart. Resets all gameplay state but NOT hiScore (or rng).
-    203  f031							;-------------------------------------------------------------
-    204  f031				   NewGame
-    205  f031		       a9 0e		      lda	#COL_BG
-    206  f033		       85 09		      sta	COLUBK	; clear any game-over red tint
-    207  f035
-    208  f035		       a9 05		      lda	#5
-    209  f037		       85 80		      sta	playerFloor	; player starts on the bottom tier
-    210  f039		       a9 00		      lda	#0
-    211  f03b		       85 82		      sta	btnPrev
-    212  f03d		       85 c4		      sta	gameState
-    213  f03f		       85 ca		      sta	goCnt
-    214  f041		       85 c3		      sta	sfxTimer	; stop any leftover sound (e.g. the death sting)
-    215  f043		       85 c5		      sta	scoreBCD+0
-    216  f045		       85 c6		      sta	scoreBCD+1
-    217  f047		       85 c7		      sta	scoreBCD+2
-    218  f049		       85 b0		      sta	scrollFrac
-    219  f04b		       85 cb		      sta	animFrame	; start on run-cycle frame 0
-    220  f04d		       a9 16		      lda	#ANIM_BASE
-    221  f04f		       85 cc		      sta	animTimer
-    222  f051		       a9 20		      lda	#SPEED_BASE
-    223  f053		       85 af		      sta	scrollSpeed	; start each game at base speed (1 px/frame)
-    224  f055
-    225  f055							; Staggered initial gap positions (floor 5 has no gap)
-    226  f055		       a9 8c		      lda	#140
-    227  f057		       85 8b		      sta	gapX+0
-    228  f059		       a9 6e		      lda	#110
-    229  f05b		       85 8c		      sta	gapX+1
-    230  f05d		       a9 50		      lda	#80
-    231  f05f		       85 8d		      sta	gapX+2
-    232  f061		       a9 32		      lda	#50
-    233  f063		       85 8e		      sta	gapX+3
-    234  f065		       a9 82		      lda	#130
-    235  f067		       85 8f		      sta	gapX+4
-    236  f069		       a9 00		      lda	#0
-    237  f06b		       85 90		      sta	gapX+5
-    238  f06d
-    239  f06d							; Reseed the PRNG from the free-running frame counter (mixed with whatever
-    240  f06d							; state carried over), so each restart differs -- the human-variable delay
-    241  f06d							; before pressing fire makes frameCnt effectively random. Keep it non-zero
-    242  f06d							; (an all-zero LFSR is a dead state).
-    243  f06d		       a5 c0		      lda	rng
-    244  f06f		       45 c1		      eor	frameCnt
-    245  f071		       d0 02		      bne	.seedOk
-    246  f073		       a9 01		      lda	#1
-    247  f075				   .seedOk
-    248  f075		       85 c0		      sta	rng
-    249  f077
-    250  f077							; Start with EMPTY platforms: every entity begins hidden and slides in from
-    251  f077							; the right edge on a staggered delay (via the normal respawn path, which
-    252  f077							; rolls a random type and clears gaps). This guarantees reaction time on any
-    253  f077							; floor the player jumps to -- nothing is ever sitting in the jump path at
-    254  f077							; the fixed player x. entX is set when each one spawns; entDrawLo = blank.
-    255  f077		       a2 05		      ldx	#5
-    256  f079				   .ngEnt
-    257  f079		       a9 00		      lda	#0
-    258  f07b		       95 9d		      sta	entType,x	; hidden -> .entWaiting spawns it (slide-in)
-    259  f07d		       95 cd		      sta	entSlide,x
-    260  f07f		       95 d9		      sta	entRefp,x
-    261  f081		       a9 30		      lda	#<ZeroSprite
-    262  f083		       95 d3		      sta	entDrawLo,x
-    263  f085		       bd 89 f4 	      lda	InitDelayTab,x	; staggered first-spawn delay per floor
-    264  f088		       95 a9		      sta	entDelay,x
-    265  f08a		       ca		      dex
-    266  f08b		       10 ec		      bpl	.ngEnt
-    267  f08d
-    268  f08d		       20 5a f8 	      jsr	GetDigitPtrs	; seed digit pointers for the first HUD
-    269  f090
-    270  f090							;-------------------------------------------------------------
-    271  f090							; Main frame loop
-    272  f090							;-------------------------------------------------------------
-    273  f090				   NextFrame
-    274  f090		       a9 02		      lda	#2
-    275  f092		       85 01		      sta	VBLANK
-      0  f094					      VERTICAL_SYNC		; 3 vsync lines (leaves A=0)
-      1  f094		       a9 0e		      lda	#%1110
-      2  f096		       85 02	   .VSLP1     sta	WSYNC
-      3  f098		       85 00		      sta	VSYNC
-      4  f09a		       4a		      lsr
-      5  f09b		       d0 f9		      bne	.VSLP1
-    277  f09d		       85 2c		      sta	CXCLR	; clear collision latches for this frame
-    278  f09f
-    279  f09f							; --- position the score sprites (P0+P1, 3 copies each = 6 digits) ---
-    280  f09f							; (uses 2 of the 36 VBLANK scanlines; the rest are the WSYNC loop below)
-    281  f09f		       a9 03		      lda	#THREE_COPIES
-    282  f0a1		       85 04		      sta	NUSIZ0
-    283  f0a3		       85 05		      sta	NUSIZ1
-    284  f0a5		       a9 00		      lda	#SCORE_COL
-    285  f0a7		       85 06		      sta	COLUP0
-    286  f0a9		       85 07		      sta	COLUP1
-    287  f0ab		       85 02		      sta	WSYNC	; vblank line 1
-      0  f0ad					      SLEEP	SCORE_SLEEP
-      1  f0ad				   .CYCLES    SET	SCORE_SLEEP
-      2  f0ad
-      3  f0ad				  -	      IF	.CYCLES < 2
-      4  f0ad				  -	      ECHO	"MACRO ERROR: 'SLEEP': Duration must be > 1"
-      5  f0ad				  -	      ERR
-      6  f0ad					      ENDIF
-      7  f0ad
-      8  f0ad				  -	      IF	.CYCLES & 1
-      9  f0ad				  -	      IFNCONST	NO_ILLEGAL_OPCODES
-     10  f0ad				  -	      nop	0
-     11  f0ad				  -	      ELSE
-     12  f0ad				  -	      bit	VSYNC
-     13  f0ad				  -	      ENDIF
-     14  f0ad				  -.CYCLES    SET	.CYCLES - 3
-     15  f0ad					      ENDIF
-     16  f0ad
-     17  f0ad					      REPEAT	.CYCLES / 2
-     18  f0ad		       ea		      nop
-     17  f0ad					      REPEND
-     18  f0ae		       ea		      nop
-     17  f0ae					      REPEND
-     18  f0af		       ea		      nop
-     17  f0af					      REPEND
-     18  f0b0		       ea		      nop
-     17  f0b0					      REPEND
-     18  f0b1		       ea		      nop
-     17  f0b1					      REPEND
-     18  f0b2		       ea		      nop
-     17  f0b2					      REPEND
-     18  f0b3		       ea		      nop
-     17  f0b3					      REPEND
-     18  f0b4		       ea		      nop
-     17  f0b4					      REPEND
-     18  f0b5		       ea		      nop
-     17  f0b5					      REPEND
-     18  f0b6		       ea		      nop
-     17  f0b6					      REPEND
-     18  f0b7		       ea		      nop
-     17  f0b7					      REPEND
-     18  f0b8		       ea		      nop
-     17  f0b8					      REPEND
-     18  f0b9		       ea		      nop
-     17  f0b9					      REPEND
-     18  f0ba		       ea		      nop
-     17  f0ba					      REPEND
-     18  f0bb		       ea		      nop
-     17  f0bb					      REPEND
-     18  f0bc		       ea		      nop
-     17  f0bc					      REPEND
-     18  f0bd		       ea		      nop
-     17  f0bd					      REPEND
-     18  f0be		       ea		      nop
-     19  f0bf					      REPEND
-    289  f0bf		       85 10		      sta	RESP0	; coarse-position P0 and P1 together
-    290  f0c1		       85 11		      sta	RESP1
-    291  f0c3		       85 2b		      sta	HMCLR	; clear stray motion (player left HMP0=$80)
-    292  f0c5		       a9 10		      lda	#$10
-    293  f0c7		       85 21		      sta	HMP1	; nudge P1 so its copies interleave with P0's
-    294  f0c9		       85 02		      sta	WSYNC	; vblank line 2
-    295  f0cb		       85 2a		      sta	HMOVE
-      0  f0cd					      SLEEP	24	; settle time after HMOVE before HMCLR
-      1  f0cd				   .CYCLES    SET	24
-      2  f0cd
-      3  f0cd				  -	      IF	.CYCLES < 2
-      4  f0cd				  -	      ECHO	"MACRO ERROR: 'SLEEP': Duration must be > 1"
-      5  f0cd				  -	      ERR
-      6  f0cd					      ENDIF
-      7  f0cd
-      8  f0cd				  -	      IF	.CYCLES & 1
-      9  f0cd				  -	      IFNCONST	NO_ILLEGAL_OPCODES
-     10  f0cd				  -	      nop	0
-     11  f0cd				  -	      ELSE
-     12  f0cd				  -	      bit	VSYNC
-     13  f0cd				  -	      ENDIF
-     14  f0cd				  -.CYCLES    SET	.CYCLES - 3
-     15  f0cd					      ENDIF
-     16  f0cd
-     17  f0cd					      REPEAT	.CYCLES / 2
+    171  f00b
+    172  f00b							; --- one-time setup (survives a soft restart) ---
+    173  f00b							; Solid, full-width playfield (held for the whole program)
+    174  f00b		       a9 f0		      lda	#$F0
+    175  f00d		       85 0d		      sta	PF0
+    176  f00f		       a9 ff		      lda	#$FF
+    177  f011		       85 0e		      sta	PF1
+    178  f013		       85 0f		      sta	PF2
+    179  f015		       a9 00		      lda	#0
+    180  f017		       85 0a		      sta	CTRLPF	; players/missiles draw over the playfield
+    181  f019
+    182  f019							; Missile 0 is GAP_WIDTH wide (player stays normal width)
+    183  f019		       a9 30		      lda	#$30
+    184  f01b		       85 04		      sta	NUSIZ0
+    185  f01d
+    186  f01d							; Default every motion register to $80, the cycle-74 HMOVE "no motion"
+    187  f01d							; value: the per-band cycle-74 HMOVEs re-apply ALL HMxx, and $00 there
+    188  f01d							; is NOT zero motion (it would walk the object); $80 (NO_MO_74) holds
+    189  f01d							; non-targeted objects still. The player P0 is (re)placed each frame in
+    190  f01d							; the HUD transition; gaps/entities are placed per band.
+    191  f01d		       85 2b		      sta	HMCLR
+    192  f01f		       a9 80		      lda	#$80
+    193  f021		       85 20		      sta	HMP0
+    194  f023		       85 22		      sta	HMM0
+    195  f025		       85 21		      sta	HMP1
+    196  f027
+    197  f027		       a9 01		      lda	#1
+    198  f029		       85 c0		      sta	rng	; PRNG seed (set once; advances across games)
+    199  f02b
+    200  f02b		       a9 00		      lda	#0
+    201  f02d		       85 19		      sta	AUDV0	; silence both audio channels at boot
+    202  f02f		       85 1a		      sta	AUDV1
+    203  f031
+    204  f031							;-------------------------------------------------------------
+    205  f031							; NewGame - (re)start a round. Reached from Reset and from a game-over
+    206  f031							; restart. Resets all gameplay state but NOT hiScore (or rng).
+    207  f031							;-------------------------------------------------------------
+    208  f031				   NewGame
+    209  f031		       a9 0e		      lda	#COL_BG
+    210  f033		       85 09		      sta	COLUBK	; clear any game-over red tint
+    211  f035
+    212  f035		       a9 05		      lda	#5
+    213  f037		       85 80		      sta	playerFloor	; player starts on the bottom tier
+    214  f039		       a9 00		      lda	#0
+    215  f03b		       85 82		      sta	btnPrev
+    216  f03d		       85 c4		      sta	gameState
+    217  f03f		       85 ca		      sta	goCnt
+    218  f041		       85 c3		      sta	sfxTimer	; stop any leftover sound (e.g. the death sting)
+    219  f043		       85 c5		      sta	scoreBCD+0
+    220  f045		       85 c6		      sta	scoreBCD+1
+    221  f047		       85 c7		      sta	scoreBCD+2
+    222  f049		       85 b0		      sta	scrollFrac
+    223  f04b		       85 cb		      sta	animFrame	; start on run-cycle frame 0
+    224  f04d		       a9 16		      lda	#ANIM_BASE
+    225  f04f		       85 cc		      sta	animTimer
+    226  f051		       a9 20		      lda	#SPEED_BASE
+    227  f053		       85 af		      sta	scrollSpeed	; start each game at base speed (1 px/frame)
+    228  f055
+    229  f055							; (gap layout is randomised below, after the PRNG is reseeded)
+    230  f055
+    231  f055							; Reseed the PRNG from the free-running frame counter (mixed with whatever
+    232  f055							; state carried over), so each restart differs -- the human-variable delay
+    233  f055							; before pressing fire makes frameCnt effectively random. Keep it non-zero
+    234  f055							; (an all-zero LFSR is a dead state).
+    235  f055		       a5 c0		      lda	rng
+    236  f057		       45 c1		      eor	frameCnt
+    237  f059		       d0 02		      bne	.seedOk
+    238  f05b		       a9 01		      lda	#1
+    239  f05d				   .seedOk
+    240  f05d		       85 c0		      sta	rng
+    241  f05f
+    242  f05f							; Randomise the gap (slot) layout per game. Each floor gets a fully random x;
+    243  f05f							; re-roll any that lands within GAP_MIN_SEP of the floor below so holes never
+    244  f05f							; stack (which would drop the player straight through) -- but the result is
+    245  f05f							; non-monotonic (no rigid diagonal). Candidates stay in 16..143 (away from the
+    246  f05f							; 0/159 wrap zone, so the same separation holds as they scroll). Floor 5: none.
+    247  f05f		       a2 04		      ldx	#4
+    248  f061				   .ngGapFloor
+    249  f061		       a0 08		      ldy	#8	; re-roll attempt cap (collisions are rare)
+    250  f063				   .ngGapRoll
+    251  f063		       20 c9 f2 	      jsr	Rng	; (Rng preserves X and Y)
+    252  f066		       29 7f		      and	#$7F
+    253  f068		       18		      clc
+    254  f069		       69 10		      adc	#16	; candidate 16..143
+    255  f06b		       85 85		      sta	tempOne
+    256  f06d		       e0 04		      cpx	#4
+    257  f06f		       f0 11		      beq	.ngGapOk	; first floor placed: nothing below to clash with
+    258  f071		       38		      sec
+    259  f072		       f5 8c		      sbc	gapX+1,x	; A = candidate - gap on the floor below
+    260  f074		       b0 05		      bcs	.ngGapAbs
+    261  f076		       49 ff		      eor	#$FF
+    262  f078		       18		      clc
+    263  f079		       69 01		      adc	#1	; A = |difference|
+    264  f07b				   .ngGapAbs
+    265  f07b		       c9 18		      cmp	#GAP_MIN_SEP
+    266  f07d		       b0 03		      bcs	.ngGapOk	; far enough from the floor below -> accept
+    267  f07f		       88		      dey
+    268  f080		       d0 e1		      bne	.ngGapRoll	; too close -> re-roll (capped)
+    269  f082				   .ngGapOk
+    270  f082		       a5 85		      lda	tempOne
+    271  f084		       95 8b		      sta	gapX,x
+    272  f086		       ca		      dex
+    273  f087		       10 d8		      bpl	.ngGapFloor
+    274  f089		       a9 00		      lda	#0
+    275  f08b		       85 90		      sta	gapX+5
+    276  f08d
+    277  f08d							; Start with EMPTY platforms: every entity begins hidden and slides in from
+    278  f08d							; the right edge (via the normal respawn path, which rolls a random type and
+    279  f08d							; clears gaps). Each gets a RANDOM first-spawn delay so they don't all enter
+    280  f08d							; evenly spaced (which read as a rigid diagonal). entX is set on spawn.
+    281  f08d		       a2 05		      ldx	#5
+    282  f08f				   .ngEnt
+    283  f08f		       a9 00		      lda	#0
+    284  f091		       95 9d		      sta	entType,x	; hidden -> .entWaiting spawns it (slide-in)
+    285  f093		       95 cd		      sta	entSlide,x
+    286  f095		       95 d9		      sta	entRefp,x
+    287  f097		       a9 30		      lda	#<ZeroSprite
+    288  f099		       95 d3		      sta	entDrawLo,x
+    289  f09b		       20 c9 f2 	      jsr	Rng	; random first-spawn delay (Rng preserves X)
+    290  f09e		       29 3f		      and	#$3F
+    291  f0a0		       18		      clc
+    292  f0a1		       69 08		      adc	#8	; 8..71 frames -> entities enter at varied times
+    293  f0a3		       95 a9		      sta	entDelay,x
+    294  f0a5		       ca		      dex
+    295  f0a6		       10 e7		      bpl	.ngEnt
+    296  f0a8
+    297  f0a8		       20 5a f8 	      jsr	GetDigitPtrs	; seed digit pointers for the first HUD
+    298  f0ab
+    299  f0ab							;-------------------------------------------------------------
+    300  f0ab							; Main frame loop
+    301  f0ab							;-------------------------------------------------------------
+    302  f0ab				   NextFrame
+    303  f0ab		       a9 02		      lda	#2
+    304  f0ad		       85 01		      sta	VBLANK
+      0  f0af					      VERTICAL_SYNC		; 3 vsync lines (leaves A=0)
+      1  f0af		       a9 0e		      lda	#%1110
+      2  f0b1		       85 02	   .VSLP1     sta	WSYNC
+      3  f0b3		       85 00		      sta	VSYNC
+      4  f0b5		       4a		      lsr
+      5  f0b6		       d0 f9		      bne	.VSLP1
+    306  f0b8		       85 2c		      sta	CXCLR	; clear collision latches for this frame
+    307  f0ba
+    308  f0ba							; --- position the score sprites (P0+P1, 3 copies each = 6 digits) ---
+    309  f0ba							; (uses 2 of the 36 VBLANK scanlines; the rest are the WSYNC loop below)
+    310  f0ba		       a9 03		      lda	#THREE_COPIES
+    311  f0bc		       85 04		      sta	NUSIZ0
+    312  f0be		       85 05		      sta	NUSIZ1
+    313  f0c0		       a9 00		      lda	#SCORE_COL
+    314  f0c2		       85 06		      sta	COLUP0
+    315  f0c4		       85 07		      sta	COLUP1
+    316  f0c6		       85 02		      sta	WSYNC	; vblank line 1
+      0  f0c8					      SLEEP	SCORE_SLEEP
+      1  f0c8				   .CYCLES    SET	SCORE_SLEEP
+      2  f0c8
+      3  f0c8				  -	      IF	.CYCLES < 2
+      4  f0c8				  -	      ECHO	"MACRO ERROR: 'SLEEP': Duration must be > 1"
+      5  f0c8				  -	      ERR
+      6  f0c8					      ENDIF
+      7  f0c8
+      8  f0c8				  -	      IF	.CYCLES & 1
+      9  f0c8				  -	      IFNCONST	NO_ILLEGAL_OPCODES
+     10  f0c8				  -	      nop	0
+     11  f0c8				  -	      ELSE
+     12  f0c8				  -	      bit	VSYNC
+     13  f0c8				  -	      ENDIF
+     14  f0c8				  -.CYCLES    SET	.CYCLES - 3
+     15  f0c8					      ENDIF
+     16  f0c8
+     17  f0c8					      REPEAT	.CYCLES / 2
+     18  f0c8		       ea		      nop
+     17  f0c8					      REPEND
+     18  f0c9		       ea		      nop
+     17  f0c9					      REPEND
+     18  f0ca		       ea		      nop
+     17  f0ca					      REPEND
+     18  f0cb		       ea		      nop
+     17  f0cb					      REPEND
+     18  f0cc		       ea		      nop
+     17  f0cc					      REPEND
      18  f0cd		       ea		      nop
      17  f0cd					      REPEND
      18  f0ce		       ea		      nop
@@ -786,890 +764,937 @@
      18  f0d7		       ea		      nop
      17  f0d7					      REPEND
      18  f0d8		       ea		      nop
-     19  f0d9					      REPEND
-    297  f0d9		       85 2b		      sta	HMCLR
-    298  f0db		       a9 01		      lda	#1
-    299  f0dd		       85 25		      sta	VDELP0	; vertical delay: enables the 6-digit retrigger
-    300  f0df		       85 26		      sta	VDELP1
-    301  f0e1
-    302  f0e1		       a2 22		      ldx	#34	; remaining VBLANK lines (2 + 34 = 36)
-    303  f0e3				   VBlankLoop
-    304  f0e3		       85 02		      sta	WSYNC
-    305  f0e5		       ca		      dex
-    306  f0e6		       d0 fb		      bne	VBlankLoop
-    307  f0e8
-    308  f0e8		       a9 00		      lda	#0
-    309  f0ea		       85 01		      sta	VBLANK	; display on
-    310  f0ec
-    311  f0ec							;-------------------------------------------------------------
-    312  f0ec							; Visible kernel (192 lines = HUD 12 + 6 bands * 30)
-    313  f0ec							;-------------------------------------------------------------
-    314  f0ec							; --- HUD region: 6-digit score (12 WSYNC-exact lines) ---
-    315  f0ec		       a9 00		      lda	#0
-    316  f0ee		       85 0c		      sta	REFP1	; clear any slide-in reflect so score digits (GRP1) aren't mirrored
-    317  f0f0		       a9 0e		      lda	#COL_BG
-    318  f0f2		       85 08		      sta	COLUPF	; HUD line 0: playfield invisible behind the score
-    319  f0f4		       20 00 f8 	      jsr	DrawDigits	; HUD lines 1-9 (DrawDigits ends on a WSYNC)
-    320  f0f7							; HUD line 10: restore game sprite state
-    321  f0f7		       a9 00		      lda	#0
-    322  f0f9		       85 25		      sta	VDELP0
-    323  f0fb		       85 26		      sta	VDELP1
-    324  f0fd		       85 05		      sta	NUSIZ1	; entity = single copy
-    325  f0ff		       a9 30		      lda	#$30
-    326  f101		       85 04		      sta	NUSIZ0	; missile 8px wide, player single copy
-    327  f103		       85 02		      sta	WSYNC
-    328  f105							; HUD line 11: re-place the player P0 near PLAYER_X
-      0  f105					      SLEEP	PLAYER_SLEEP
-      1  f105				   .CYCLES    SET	PLAYER_SLEEP
-      2  f105
-      3  f105				  -	      IF	.CYCLES < 2
-      4  f105				  -	      ECHO	"MACRO ERROR: 'SLEEP': Duration must be > 1"
-      5  f105				  -	      ERR
-      6  f105					      ENDIF
-      7  f105
-      8  f105					      IF	.CYCLES & 1
-      9  f105					      IFNCONST	NO_ILLEGAL_OPCODES
-     10  f105		       04 00		      nop	0
-     11  f107				  -	      ELSE
-     12  f107				  -	      bit	VSYNC
-     13  f107					      ENDIF
-     14  f107				   .CYCLES    SET	.CYCLES - 3
-     15  f107					      ENDIF
-     16  f107
-     17  f107					      REPEAT	.CYCLES / 2
-     18  f107		       ea		      nop
-     17  f107					      REPEND
-     18  f108		       ea		      nop
-     17  f108					      REPEND
-     18  f109		       ea		      nop
-     17  f109					      REPEND
-     18  f10a		       ea		      nop
-     17  f10a					      REPEND
-     18  f10b		       ea		      nop
-     17  f10b					      REPEND
-     18  f10c		       ea		      nop
-     17  f10c					      REPEND
-     18  f10d		       ea		      nop
-     17  f10d					      REPEND
-     18  f10e		       ea		      nop
-     17  f10e					      REPEND
-     18  f10f		       ea		      nop
-     17  f10f					      REPEND
-     18  f110		       ea		      nop
-     19  f111					      REPEND
-    330  f111		       85 10		      sta	RESP0
-    331  f113		       a9 80		      lda	#$80
-    332  f115		       85 20		      sta	HMP0	; cycle-74 no-motion so band HMOVEs hold it
-    333  f117		       85 02		      sta	WSYNC
-    334  f119
-    335  f119							; Six platform bands
-    336  f119		       a9 06		      lda	#NUM_BANDS
-    337  f11b		       85 83		      sta	bandCount
-    338  f11d				   BandLoop
-    339  f11d							; --- setbg line: background colour, player colour, missile off ---
-    340  f11d		       85 02		      sta	WSYNC
-    341  f11f		       a9 0e		      lda	#COL_BG
-    342  f121		       85 08		      sta	COLUPF
-    343  f123		       a9 02		      lda	#COL_PLAYER
-    344  f125		       85 06		      sta	COLUP0
-    345  f127		       a9 00		      lda	#0
-    346  f129		       85 1d		      sta	ENAM0
-    347  f12b
-    348  f12b							; floor index = NUM_BANDS - bandCount, then position the gap missile
-    349  f12b							; (Pos74M0 consumes exactly one scanline, HMOVE at cycle ~74)
-    350  f12b		       a9 06		      lda	#NUM_BANDS
-    351  f12d		       38		      sec
-    352  f12e		       e5 83		      sbc	bandCount
-    353  f130		       85 84		      sta	curFloor
-    354  f132		       a8		      tay
-    355  f133		       20 72 f2 	      jsr	Pos74M0	; position the gap missile (cycle-74)
-    356  f136		       a9 80		      lda	#$80
-    357  f138		       85 22		      sta	HMM0	; restore no-motion so the next HMOVE won't move it
-    358  f13a		       a4 84		      ldy	curFloor
-    359  f13c		       20 90 f2 	      jsr	Pos74P1	; position the entity sprite GRP1 (cycle-74)
-    360  f13f		       a9 80		      lda	#$80
-    361  f141		       85 21		      sta	HMP1	; restore no-motion
-    362  f143
-    363  f143							; pick player sprite (blank unless this is the player's band); on the player
-    364  f143							; band, select the current run-cycle frame (both frames share a page).
-    365  f143		       a5 83		      lda	bandCount
-    366  f145		       c5 81		      cmp	playerBandCount
-    367  f147		       d0 0e		      bne	.blankSpr
-    368  f149		       a6 cb		      ldx	animFrame
-    369  f14b		       bd 7a f4 	      lda	PlayerFrameLo,x
-    370  f14e		       85 87		      sta	sprPtr
-    371  f150		       a9 f4		      lda	#>PlayerSprite0
-    372  f152		       85 88		      sta	sprPtr+1
-    373  f154		       4c 5f f1 	      jmp	.selEnt
-    374  f157				   .blankSpr
-      0  f157					      SET_POINTER	sprPtr, ZeroSprite
-      1  f157				   .POINTER   SET	sprPtr
-      2  f157				   .ADDRESS   SET	ZeroSprite
-      3  f157
-      4  f157		       a9 30		      LDA	#<.ADDRESS
-      5  f159		       85 87		      STA	.POINTER
-      6  f15b		       a9 f5		      LDA	#>.ADDRESS
-      7  f15d		       85 88		      STA	.POINTER+1
-      8  f15f
-    376  f15f				   .selEnt
-    377  f15f							; entity sprite + colour for this floor's type. The low byte is precomputed
-    378  f15f							; (base or pre-shifted slide frame); the page is the base page normally, or
-    379  f15f							; the slide-table page while sliding (entSlide != 0).
-    380  f15f		       a4 84		      ldy	curFloor
-    381  f161		       b6 9d		      ldx	entType,y
-    382  f163		       bd 7c f4 	      lda	EntColorTable,x
-    383  f166		       85 07		      sta	COLUP1
-    384  f168		       b9 d3 00 	      lda	entDrawLo,y
-    385  f16b		       85 be		      sta	entPtr
-    386  f16d		       a9 f5		      lda	#>ZeroSprite	; base + slide frames all share this page
-    387  f16f		       85 bf		      sta	entPtr+1
-    388  f171		       b9 d9 00 	      lda	entRefp,y	; reflect GRP1 while sliding in (else 0)
-    389  f174		       85 0c		      sta	REFP1
-    390  f176
-    391  f176							; 2-line top air pad: drops the sprite within the band so its feet land on
-    392  f176							; the platform below. (GRP0/GRP1 are 0 here from the previous band's clear.)
-    393  f176		       85 02		      sta	WSYNC
-    394  f178		       85 02		      sta	WSYNC
-    395  f17a
-    396  f17a							; sprite window: each body row (7..2) is drawn on TWO scanlines so the
-    397  f17a							; player / entity / cone render at 2x height from the same 8-byte data
-    398  f17a							; (the 2600 has no vertical stretch -- you just hold GRPx for 2 lines).
-    399  f17a							; No pad loop: the positioning lines above already render as background.
-    400  f17a		       a0 07		      ldy	#SPRITE_H-1	; 7
-    401  f17c				   .sprLoop
-    402  f17c		       85 02		      sta	WSYNC	; row y, 1st scanline
-    403  f17e		       b1 87		      lda	(sprPtr),y
-    404  f180		       85 1b		      sta	GRP0
-    405  f182		       b1 be		      lda	(entPtr),y
-    406  f184		       85 1c		      sta	GRP1
-    407  f186		       85 02		      sta	WSYNC	; row y, 2nd scanline (GRP0/GRP1 hold => 2x tall)
-    408  f188		       88		      dey
-    409  f189		       c0 01		      cpy	#1
-    410  f18b		       d0 ef		      bne	.sprLoop	; rows 7..2 (the body), each twice = 12 lines
-    411  f18d
-    412  f18d							; Still on the last body line (row 2 = feet). After the beam has drawn the
-    413  f18d							; player (~pixel 22), recolour the missile to background and enable the gap:
-    414  f18d							; it stays invisible on this background line, but is then ready CLIP-FREE for
-    415  f18d							; the first green line below -- so the gap shows full-height and the feet sit
-    416  f18d							; directly on the platform (no blank foot row, no float).
-      0  f18d					      SLEEP	24	; wait past the player sprite before recolouring P0
-      1  f18d				   .CYCLES    SET	24
-      2  f18d
-      3  f18d				  -	      IF	.CYCLES < 2
-      4  f18d				  -	      ECHO	"MACRO ERROR: 'SLEEP': Duration must be > 1"
-      5  f18d				  -	      ERR
-      6  f18d					      ENDIF
-      7  f18d
-      8  f18d				  -	      IF	.CYCLES & 1
-      9  f18d				  -	      IFNCONST	NO_ILLEGAL_OPCODES
-     10  f18d				  -	      nop	0
-     11  f18d				  -	      ELSE
-     12  f18d				  -	      bit	VSYNC
-     13  f18d				  -	      ENDIF
-     14  f18d				  -.CYCLES    SET	.CYCLES - 3
-     15  f18d					      ENDIF
-     16  f18d
-     17  f18d					      REPEAT	.CYCLES / 2
-     18  f18d		       ea		      nop
-     17  f18d					      REPEND
-     18  f18e		       ea		      nop
-     17  f18e					      REPEND
-     18  f18f		       ea		      nop
-     17  f18f					      REPEND
-     18  f190		       ea		      nop
-     17  f190					      REPEND
-     18  f191		       ea		      nop
-     17  f191					      REPEND
-     18  f192		       ea		      nop
-     17  f192					      REPEND
-     18  f193		       ea		      nop
-     17  f193					      REPEND
-     18  f194		       ea		      nop
-     17  f194					      REPEND
-     18  f195		       ea		      nop
-     17  f195					      REPEND
-     18  f196		       ea		      nop
-     17  f196					      REPEND
-     18  f197		       ea		      nop
-     17  f197					      REPEND
-     18  f198		       ea		      nop
-     19  f199					      REPEND
-    418  f199		       a9 0e		      lda	#COL_BG
-    419  f19b		       85 06		      sta	COLUP0
-    420  f19d		       a4 84		      ldy	curFloor
-    421  f19f		       b9 4e f4 	      lda	GapOnTable,y
-    422  f1a2		       85 1d		      sta	ENAM0
-    423  f1a4
-    424  f1a4							; green top rows. In green line 1's HBLANK (before pixel 0) clear GRP0/GRP1
-    425  f1a4							; AND both VDEL "old" latches (double sta-pair: a GRP1 write refreshes GRP0's
-    426  f1a4							; old latch and vice-versa) so the feet don't bleed onto the platform and no
-    427  f1a4							; stale entity row reaches the score next frame (where VDELP1=1 displays it).
-    428  f1a4		       85 02		      sta	WSYNC
-    429  f1a6		       a9 00		      lda	#0
-    430  f1a8		       85 1b		      sta	GRP0
-    431  f1aa		       85 1c		      sta	GRP1
-    432  f1ac		       85 1b		      sta	GRP0
-    433  f1ae		       85 1c		      sta	GRP1
-    434  f1b0		       a9 c8		      lda	#COL_GREEN
-    435  f1b2		       85 08		      sta	COLUPF
-    436  f1b4		       a2 04		      ldx	#BAND_GREEN-1
-    437  f1b6				   .grnLoop
-    438  f1b6		       85 02		      sta	WSYNC
-    439  f1b8		       ca		      dex
-    440  f1b9		       d0 fb		      bne	.grnLoop
-    441  f1bb
-    442  f1bb							; grey underside rows
-    443  f1bb		       85 02		      sta	WSYNC
-    444  f1bd		       a9 06		      lda	#COL_GREY
-    445  f1bf		       85 08		      sta	COLUPF
-    446  f1c1		       a2 05		      ldx	#BAND_GREY-1
-    447  f1c3				   .gryLoop
-    448  f1c3		       85 02		      sta	WSYNC
-    449  f1c5		       ca		      dex
-    450  f1c6		       d0 fb		      bne	.gryLoop
-    451  f1c8
-    452  f1c8		       c6 83		      dec	bandCount
-    453  f1ca		       f0 03		      beq	.bandsDone
-    454  f1cc		       4c 1d f1 	      jmp	BandLoop	; (band body > 128 bytes, so jmp not bne)
-    455  f1cf				   .bandsDone
-    456  f1cf
-    457  f1cf							; turn the missile off before leaving the visible area
-    458  f1cf		       a9 00		      lda	#0
-    459  f1d1		       85 1d		      sta	ENAM0
-    460  f1d3
-    461  f1d3							;-------------------------------------------------------------
-    462  f1d3							; Overscan (~30 lines via timer) - game logic + positioning precompute
-    463  f1d3							;-------------------------------------------------------------
-    464  f1d3		       a9 02		      lda	#2
-    465  f1d5		       85 01		      sta	VBLANK
-    466  f1d7		       a9 23		      lda	#35
-    467  f1d9		       8d 96 02 	      sta	TIM64T
-    468  f1dc
-    469  f1dc		       e6 c1		      inc	frameCnt	; free-running frame timer (all states) for RNG reseed
-    470  f1de
-    471  f1de		       a5 c4		      lda	gameState
-    472  f1e0		       d0 13		      bne	.gsFrozen
-    473  f1e2							; CheckCollision must run BEFORE input/update: CXPPMM reflects the
-    474  f1e2							; frame just rendered, where playerFloor still matches.
-    475  f1e2		       20 b9 f3 	      jsr	CheckCollision
-    476  f1e5		       a5 c4		      lda	gameState
-    477  f1e7		       d0 0f		      bne	.gsAfter	; just died this frame -> skip further updates
-    478  f1e9		       20 b8 f2 	      jsr	ReadInput
-    479  f1ec		       20 ee f2 	      jsr	UpdateWorld
-    480  f1ef		       20 d5 f2 	      jsr	AnimatePlayer	; advance the run cycle (frozen while game over)
-    481  f1f2		       4c f8 f1 	      jmp	.gsAfter
-    482  f1f5				   .gsFrozen
-    483  f1f5		       20 1e f4 	      jsr	CheckRestart	; world frozen; fresh fire press restarts
-    484  f1f8				   .gsAfter
-    485  f1f8		       20 da f8 	      jsr	UpdateSound	; advance SFX every frame (incl. the game-over freeze)
-    486  f1fb							; game-over text cycle: 240-frame period (120 GAMEOVER + 120 HInnnn)
-    487  f1fb		       e6 ca		      inc	goCnt
-    488  f1fd		       a5 ca		      lda	goCnt
-    489  f1ff		       c9 f0		      cmp	#240
-    490  f201		       90 04		      bcc	.goCntOk
-    491  f203		       a9 00		      lda	#0
-    492  f205		       85 ca		      sta	goCnt
-    493  f207				   .goCntOk
-    494  f207
-    495  f207							; Precompute each gap's quickPos + strobe-table entry (in overscan),
-    496  f207							; so the visible kernel positions in one fixed-time scanline.
-    497  f207		       a2 05		      ldx	#5
-    498  f209				   .precomp
-    499  f209							; gap (missile 0)
-    500  f209		       b5 8b		      lda	gapX,x
-    501  f20b		       86 86		      stx	tempFloor
-    502  f20d		       20 30 f4 	      jsr	CalcQuickPos	; A = quickPos (clobbers Y, tempOne)
-    503  f210		       a6 86		      ldx	tempFloor
-    504  f212		       95 91		      sta	gapQuick,x
-    505  f214		       29 0f		      and	#$0F	; low nibble = delay count = jump-table index
-    506  f216		       a8		      tay
-    507  f217		       b9 25 f5 	      lda	JumpTabM0,y
-    508  f21a		       95 97		      sta	posJmpLo,x
-    509  f21c							; entity (GRP1) - PosTblP1 mirrors PosTblM0, so JumpTabM0 low bytes apply
-    510  f21c		       b5 a3		      lda	entX,x
-    511  f21e		       86 86		      stx	tempFloor
-    512  f220		       20 30 f4 	      jsr	CalcQuickPos
-    513  f223		       a6 86		      ldx	tempFloor
-    514  f225		       95 b2		      sta	entQuick,x
-    515  f227		       29 0f		      and	#$0F
-    516  f229		       a8		      tay
-    517  f22a		       b9 25 f5 	      lda	JumpTabM0,y
-    518  f22d		       95 b8		      sta	entJmpLo,x
-    519  f22f							; resolve this floor's entity sprite low byte + REFP1. entSlide 0 = base
-    520  f22f							; sprite, no reflect. Otherwise shift N = entSlide & $7F selects the slide
-    521  f22f							; frame (SlideBaseLo[type] + (N-1)*8); the $80 flag (slide-in) sets REFP1.
-    522  f22f		       b5 cd		      lda	entSlide,x
-    523  f231		       f0 1d		      beq	.pcBase
-    524  f233		       29 7f		      and	#$7F	; N = shift amount (strip the slide-in flag)
-    525  f235		       38		      sec
-    526  f236		       e9 01		      sbc	#1	; N-1 (0..6)
-    527  f238		       0a		      asl
-    528  f239		       0a		      asl
-    529  f23a		       0a		      asl		; * 8 (rows per shift frame)
-    530  f23b		       b4 9d		      ldy	entType,x
-    531  f23d		       18		      clc
-    532  f23e		       79 82 f4 	      adc	SlideBaseLo,y
-    533  f241		       95 d3		      sta	entDrawLo,x
-    534  f243		       b5 cd		      lda	entSlide,x
-    535  f245		       29 80		      and	#$80	; slide-in flag -> REFP1 bit3 ($80 >> 4 = $08)
-    536  f247		       4a		      lsr
-    537  f248		       4a		      lsr
-    538  f249		       4a		      lsr
-    539  f24a		       4a		      lsr
-    540  f24b		       95 d9		      sta	entRefp,x
-    541  f24d		       4c 5b f2 	      jmp	.pcSprDone
-    542  f250				   .pcBase
-    543  f250		       b4 9d		      ldy	entType,x
-    544  f252		       b9 7f f4 	      lda	EntSprLo,y
-    545  f255		       95 d3		      sta	entDrawLo,x
-    546  f257		       a9 00		      lda	#0
-    547  f259		       95 d9		      sta	entRefp,x
-    548  f25b				   .pcSprDone
-    549  f25b		       ca		      dex
-    550  f25c		       10 ab		      bpl	.precomp
-    551  f25e
-    552  f25e							; playerBandCount = NUM_BANDS - playerFloor (for next frame's kernel)
-    553  f25e		       a9 06		      lda	#NUM_BANDS
-    554  f260		       38		      sec
-    555  f261		       e5 80		      sbc	playerFloor
-    556  f263		       85 81		      sta	playerBandCount
-    557  f265
-    558  f265							; build the score's digit pointers for next frame's HUD
-    559  f265		       20 5a f8 	      jsr	GetDigitPtrs
-    560  f268
-    561  f268				   WaitOverscan
-    562  f268		       ad 84 02 	      lda	INTIM
-    563  f26b		       d0 fb		      bne	WaitOverscan
-    564  f26d		       85 02		      sta	WSYNC
-    565  f26f
-    566  f26f		       4c 90 f0 	      jmp	NextFrame
-    567  f272
-    568  f272							;-------------------------------------------------------------
-    569  f272							; Pos74M0 - position Missile 0 at gap[curFloor] in one scanline.
-    570  f272							;   IN: Y = curFloor. Uses precomputed gapQuick / posJmpLo.
-    571  f272							;   Cycle-74 HMOVE: clean edge-to-edge positioning, no comb.
-    572  f272							;-------------------------------------------------------------
-    573  f272				   Pos74M0
-    574  f272		       b9 91 00 	      lda	gapQuick,y
-    575  f275		       85 22		      sta	HMM0	; high nibble = fine motion (low nibble ignored)
-    576  f277		       29 0f		      and	#$0F
-    577  f279		       aa		      tax		; X = delay count
-    578  f27a		       b9 97 00 	      lda	posJmpLo,y
-    579  f27d		       85 89		      sta	posJmp
-    580  f27f		       a9 f5		      lda	#>PosTblM0
-    581  f281		       85 8a		      sta	posJmp+1
-    582  f283		       85 02		      sta	WSYNC
-    583  f285							; 9 cycles of dead time (matches hmove74 calibration)
-    584  f285		       ea		      nop		; 2
-    585  f286		       ea		      nop		; 2
-    586  f287		       ea		      nop		; 2
-    587  f288		       04 ea		      .byte.b	$04,$EA	; NOP zp (3 cycles)
-    588  f28a				   .wait74
-    589  f28a		       ca		      dex
-    590  f28b		       10 fd		      bpl	.wait74
-    591  f28d		       6c 89 00 	      jmp	(posJmp)	; into PosTblM0; strobes RESM0, HMOVE @ ~74, rts
-    592  f290
-    593  f290							;-------------------------------------------------------------
-    594  f290							; Pos74P1 - position the entity sprite (GRP1) at ent[curFloor].
-    595  f290							;   IN: Y = curFloor. Uses entQuick / entJmpLo. Same technique as
-    596  f290							;   Pos74M0, but strobes RESP1 (PosTblP1) and uses HMP1.
-    597  f290							;-------------------------------------------------------------
-    598  f290				   Pos74P1
-    599  f290		       b9 b2 00 	      lda	entQuick,y
-    600  f293		       85 21		      sta	HMP1
-    601  f295		       29 0f		      and	#$0F
-    602  f297		       aa		      tax
-    603  f298		       b9 b8 00 	      lda	entJmpLo,y
-    604  f29b		       85 89		      sta	posJmp
-    605  f29d		       a9 f6		      lda	#>PosTblP1
-    606  f29f		       85 8a		      sta	posJmp+1
-    607  f2a1		       85 02		      sta	WSYNC
-    608  f2a3		       ea		      nop
-    609  f2a4		       ea		      nop
-    610  f2a5		       ea		      nop
-    611  f2a6		       04 ea		      .byte.b	$04,$EA
-    612  f2a8				   .wait74p
-    613  f2a8		       ca		      dex
-    614  f2a9		       10 fd		      bpl	.wait74p
-    615  f2ab		       6c 89 00 	      jmp	(posJmp)	; into PosTblP1; strobes RESP1, HMOVE @ ~74, rts
-    616  f2ae
-    617  f2ae							;-------------------------------------------------------------
-    618  f2ae							; Rng - 8-bit LFSR. Advances and returns the new value in A.
-    619  f2ae							;-------------------------------------------------------------
-    620  f2ae				   Rng
-    621  f2ae		       a5 c0		      lda	rng
-    622  f2b0		       4a		      lsr
-    623  f2b1		       90 02		      bcc	.rngNoFb
-    624  f2b3		       49 b4		      eor	#$B4
-    625  f2b5				   .rngNoFb
-    626  f2b5		       85 c0		      sta	rng
-    627  f2b7		       60		      rts
-    628  f2b8
-    629  f2b8							;-------------------------------------------------------------
-    630  f2b8							; ReadInput - one-button jump-up (rising edge of fire button)
-    631  f2b8							;-------------------------------------------------------------
-    632  f2b8				   ReadInput
-    633  f2b8		       a2 00		      ldx	#0	; assume not pressed
-    634  f2ba		       a5 0c		      lda	INPT4
-    635  f2bc		       30 14		      bmi	.store	; bit7 set => not pressed
-    636  f2be		       a2 01		      ldx	#1	; pressed
-    637  f2c0		       a5 82		      lda	btnPrev
-    638  f2c2		       d0 0e		      bne	.store	; held => no new press
-    639  f2c4		       a5 80		      lda	playerFloor
-    640  f2c6		       f0 0a		      beq	.store	; already at top tier
-    641  f2c8		       c6 80		      dec	playerFloor	; jump up one tier
-      0  f2ca					      TRIGGER_SFX	SFX_JUMP, JUMP_DUR
-      1  f2ca		       a9 01		      lda	#SFX_JUMP
-      2  f2cc		       85 c2		      sta	sfxId
-      3  f2ce		       a9 0c		      lda	#JUMP_DUR
-      4  f2d0		       85 c3		      sta	sfxTimer
-    643  f2d2				   .store
-    644  f2d2		       86 82		      stx	btnPrev
-    645  f2d4		       60		      rts
-    646  f2d5
-    647  f2d5							;-------------------------------------------------------------
-    648  f2d5							; AnimatePlayer - tick the run-cycle frame. Swaps frame every animTimer
-    649  f2d5							;   frames; the interval shortens with scroll speed so the player's legs
-    650  f2d5							;   move faster as the world speeds up.
-    651  f2d5							;   interval = ANIM_BASE - (scrollSpeed >> 3)
-    652  f2d5							;-------------------------------------------------------------
-    653  f2d5				   AnimatePlayer
-    654  f2d5		       c6 cc		      dec	animTimer
-    655  f2d7		       d0 14		      bne	.apDone
-    656  f2d9		       a5 cb		      lda	animFrame
-    657  f2db		       49 01		      eor	#1
-    658  f2dd		       85 cb		      sta	animFrame	; toggle 0 <-> 1
-    659  f2df		       a5 af		      lda	scrollSpeed
-    660  f2e1		       4a		      lsr
-    661  f2e2		       4a		      lsr
-    662  f2e3		       4a		      lsr		; scrollSpeed >> 3
-    663  f2e4		       85 cc		      sta	animTimer	; (temp)
-    664  f2e6		       a9 16		      lda	#ANIM_BASE
-    665  f2e8		       38		      sec
-    666  f2e9		       e5 cc		      sbc	animTimer
-    667  f2eb		       85 cc		      sta	animTimer	; reload shortened interval
-    668  f2ed				   .apDone
-    669  f2ed		       60		      rts
-    670  f2ee
-    671  f2ee							;-------------------------------------------------------------
-    672  f2ee							; UpdateWorld - scroll gaps left, wrap, and fall-through check
-    673  f2ee							;-------------------------------------------------------------
-    674  f2ee				   UpdateWorld
-    675  f2ee							; advance the PRNG once per frame so respawns stay varied
-    676  f2ee		       20 ae f2 	      jsr	Rng
-    677  f2f1
-    678  f2f1							; Sub-pixel speed: accumulate the fractional speed; the carry is an
-    679  f2f1							; extra whole pixel this frame, so the scroll step is 1 or 2 px.
-    680  f2f1							; (scrollSpeed ramps with the score; see CheckCollision.)
-    681  f2f1		       a5 b0		      lda	scrollFrac
-    682  f2f3		       18		      clc
-    683  f2f4		       65 af		      adc	scrollSpeed	; accumulate 1/32-px units
-    684  f2f6		       aa		      tax		; X = total (whole.frac)
-    685  f2f7		       29 1f		      and	#$1F
-    686  f2f9		       85 b0		      sta	scrollFrac	; carry the fraction (low 5 bits) to next frame
-    687  f2fb		       8a		      txa
-    688  f2fc		       4a		      lsr
-    689  f2fd		       4a		      lsr
-    690  f2fe		       4a		      lsr
-    691  f2ff		       4a		      lsr
-    692  f300		       4a		      lsr		; whole pixels this frame = total >> 5
-    693  f301		       85 b1		      sta	scrollStep
-    694  f303
-    695  f303							; Everything below advances by scrollStep in ONE pass (O(1)) rather than a
-    696  f303							; per-pixel loop, so the overscan cost stays flat as the speed ramps -- the
-    697  f303							; per-pixel loop was up to 4x work at top speed and overran the overscan
-    698  f303							; timer (causing the screen to roll, worst on the heavier cone-pickup frame).
-    699  f303
-    700  f303							; --- scroll gaps (floors 0..4): gapX -= step, wrap <=0 back to GAP_WRAP ---
-    701  f303		       a2 04		      ldx	#4
-    702  f305				   .gapLoop
-    703  f305		       b5 8b		      lda	gapX,x
-    704  f307		       38		      sec
-    705  f308		       e5 b1		      sbc	scrollStep
-    706  f30a		       90 02		      bcc	.gapWrap	; underflowed past 0 -> wrap in from the right
-    707  f30c		       d0 03		      bne	.gapStore	; still > 0
-    708  f30e				   .gapWrap		; A is 0 or the negative remainder; +GAP_WRAP re-enters
-    709  f30e		       18		      clc
-    710  f30f		       69 9f		      adc	#GAP_WRAP
-    711  f311				   .gapStore
-    712  f311		       95 8b		      sta	gapX,x
-    713  f313		       ca		      dex
-    714  f314		       10 ef		      bpl	.gapLoop
-    715  f316
-    716  f316							; --- entities: advance position / slide / respawn wait, each by scrollStep ---
-    717  f316		       a2 05		      ldx	#5
-    718  f318				   .entLoop
-    719  f318		       b5 9d		      lda	entType,x
-    720  f31a		       f0 45		      beq	.entWaiting	; hidden -> count down the respawn delay
-    721  f31c		       b5 cd		      lda	entSlide,x
-    722  f31e		       f0 28		      beq	.entScroll	; 0 -> normal scroll
-    723  f320		       30 13		      bmi	.entSlideIn	; $80|N -> sliding IN from the right edge
-    724  f322							; 1..7 -> sliding OUT the left edge: grow the shift, hide once fully off
-    725  f322		       18		      clc
-    726  f323		       65 b1		      adc	scrollStep
-    727  f325		       c9 08		      cmp	#8
-    728  f327		       90 1a		      bcc	.entSlideStore	; 1..7 still partly on-screen
-    729  f329		       a9 00		      lda	#0
-    730  f32b		       95 9d		      sta	entType,x	; fully off the left edge -> hide + arm respawn
-    731  f32d		       95 cd		      sta	entSlide,x
-    732  f32f		       20 ae f3 	      jsr	SetRespawnDelay
-    733  f332		       4c 8f f3 	      jmp	.entNext
-    734  f335				   .entSlideIn
-    735  f335		       38		      sec
-    736  f336		       e5 b1		      sbc	scrollStep	; $80|N -> shrink N toward $80 (grow in from the right)
-    737  f338		       c9 81		      cmp	#$81
-    738  f33a		       b0 07		      bcs	.entSlideStore	; still >= $81 -> entering
-    739  f33c		       a9 00		      lda	#0
-    740  f33e		       95 cd		      sta	entSlide,x	; reached $80 (or past) -> fully in, normal scroll
-    741  f340		       4c 8f f3 	      jmp	.entNext
-    742  f343				   .entSlideStore
-    743  f343		       95 cd		      sta	entSlide,x
-    744  f345		       4c 8f f3 	      jmp	.entNext
-    745  f348				   .entScroll
-    746  f348		       b5 a3		      lda	entX,x
-    747  f34a		       38		      sec
-    748  f34b		       e5 b1		      sbc	scrollStep
-    749  f34d		       90 07		      bcc	.entEdge	; passed the left edge
-    750  f34f		       f0 05		      beq	.entEdge	; reached x = 0
-    751  f351		       95 a3		      sta	entX,x
-    752  f353		       4c 8f f3 	      jmp	.entNext
-    753  f356				   .entEdge
-    754  f356		       a9 00		      lda	#0
-    755  f358		       95 a3		      sta	entX,x	; clamp at the left edge
-    756  f35a		       a9 01		      lda	#1
-    757  f35c		       95 cd		      sta	entSlide,x	; begin slide-out (kernel draws asl x1 at x=0)
-    758  f35e		       4c 8f f3 	      jmp	.entNext
-    759  f361				   .entWaiting
-    760  f361		       b5 a9		      lda	entDelay,x
-    761  f363		       38		      sec
-    762  f364		       e5 b1		      sbc	scrollStep	; advance the wait by this frame's step (speed-linked)
-    763  f366		       90 07		      bcc	.entSpawn
-    764  f368		       f0 05		      beq	.entSpawn
-    765  f36a		       95 a9		      sta	entDelay,x
-    766  f36c		       4c 8f f3 	      jmp	.entNext
-    767  f36f				   .entSpawn
-    768  f36f							; delay elapsed -> respawn, but not over this floor's gap. If the gap is in
-    769  f36f							; the spawn zone, wait a little and recheck (same speed keeps them apart).
-    770  f36f		       b5 8b		      lda	gapX,x
-    771  f371		       c9 91		      cmp	#GAP_SPAWN_CLEAR
-    772  f373		       90 07		      bcc	.doSpawn
-    773  f375		       a9 10		      lda	#ENT_DEFER
-    774  f377		       95 a9		      sta	entDelay,x
-    775  f379		       4c 8f f3 	      jmp	.entNext
-    776  f37c				   .doSpawn
-    777  f37c		       20 ae f2 	      jsr	Rng
-    778  f37f		       29 03		      and	#3
-    779  f381		       a8		      tay
-    780  f382		       b9 85 f4 	      lda	EntTypeRoll,y
-    781  f385		       95 9d		      sta	entType,x
-    782  f387		       a9 98		      lda	#ENT_WRAP
-    783  f389		       95 a3		      sta	entX,x
-    784  f38b		       a9 87		      lda	#$80|7	; begin sliding IN from the right edge (reflected)
-    785  f38d		       95 cd		      sta	entSlide,x
-    786  f38f				   .entNext
-    787  f38f		       ca		      dex
-    788  f390		       10 86		      bpl	.entLoop
-    789  f392
-    790  f392							; --- fall-through (once per frame): gap under the player? ---
-    791  f392		       a5 80		      lda	playerFloor
-    792  f394		       c9 05		      cmp	#5
-    793  f396		       b0 15		      bcs	.noFall	; bottom tier is solid/safe
-    794  f398		       aa		      tax
-    795  f399		       b5 8b		      lda	gapX,x
-    796  f39b		       c9 13		      cmp	#FALL_HI+1
-    797  f39d		       b0 0e		      bcs	.noFall	; gap is right of the player
-    798  f39f		       c9 0e		      cmp	#FALL_LO
-    799  f3a1		       90 0a		      bcc	.noFall	; gap is left of the player
-    800  f3a3		       e6 80		      inc	playerFloor	; fall down one tier
-      0  f3a5					      TRIGGER_SFX	SFX_DROP, DROP_DUR
-      1  f3a5		       a9 02		      lda	#SFX_DROP
-      2  f3a7		       85 c2		      sta	sfxId
-      3  f3a9		       a9 0c		      lda	#DROP_DUR
-      4  f3ab		       85 c3		      sta	sfxTimer
-    802  f3ad				   .noFall
-    803  f3ad		       60		      rts
-    804  f3ae
-    805  f3ae							;-------------------------------------------------------------
-    806  f3ae							; SetRespawnDelay - arm entDelay[X] with a randomised off-screen wait.
-    807  f3ae							;-------------------------------------------------------------
-    808  f3ae				   SetRespawnDelay
-    809  f3ae		       20 ae f2 	      jsr	Rng
-    810  f3b1		       29 7f		      and	#ENT_DELAY_MASK
-    811  f3b3		       18		      clc
-    812  f3b4		       69 20		      adc	#ENT_DELAY_MIN
-    813  f3b6		       95 a9		      sta	entDelay,x
-    814  f3b8		       60		      rts
-    815  f3b9
-    816  f3b9							;-------------------------------------------------------------
-    817  f3b9							; CheckCollision - player vs the entity on the player's floor.
-    818  f3b9							;   cone  -> +1 to the BCD score, entity consumed.
-    819  f3b9							;   skull -> game over (freeze + red background).
-    820  f3b9							;-------------------------------------------------------------
-    821  f3b9				   CheckCollision
-    822  f3b9		       a5 07		      lda	CXPPMM
-    823  f3bb		       10 60		      bpl	.ccDone	; bit7 (P0-P1) clear -> player didn't touch an entity
-    824  f3bd							; player's GRP0 only draws on its own floor, so a P0-P1 hit is the
-    825  f3bd							; entity on playerFloor. Act on its type.
-    826  f3bd		       a6 80		      ldx	playerFloor
-    827  f3bf		       b5 9d		      lda	entType,x
-    828  f3c1		       f0 5a		      beq	.ccDone	; guard: no entity here
-    829  f3c3		       c9 02		      cmp	#ENT_SKULL
-    830  f3c5		       f0 30		      beq	.ccSkull
-      0  f3c7					      TRIGGER_SFX	SFX_CONE, CONE_DUR
-      1  f3c7		       a9 03		      lda	#SFX_CONE
-      2  f3c9		       85 c2		      sta	sfxId
-      3  f3cb		       a9 10		      lda	#CONE_DUR
-      4  f3cd		       85 c3		      sta	sfxTimer
-    832  f3cf							; cone collected: +1 (BCD). GetDigitPtrs shows scoreBCD+2 as the
-    833  f3cf							; leftmost (most-significant) digits, so the +1 must land on the
-    834  f3cf							; least-significant byte scoreBCD+0 and carry up toward +2.
-    835  f3cf		       f8		      sed
-    836  f3d0		       a5 c5		      lda	scoreBCD+0
-    837  f3d2		       18		      clc
-    838  f3d3		       69 01		      adc	#1
-    839  f3d5		       85 c5		      sta	scoreBCD+0
-    840  f3d7		       a5 c6		      lda	scoreBCD+1
-    841  f3d9		       69 00		      adc	#0
-    842  f3db		       85 c6		      sta	scoreBCD+1
-    843  f3dd		       a5 c7		      lda	scoreBCD+2
-    844  f3df		       69 00		      adc	#0
-    845  f3e1		       85 c7		      sta	scoreBCD+2
-    846  f3e3		       d8		      cld
-    847  f3e4		       a9 00		      lda	#0
-    848  f3e6		       95 9d		      sta	entType,x	; cone consumed
-    849  f3e8		       20 ae f3 	      jsr	SetRespawnDelay	; wait before a new entity enters this floor
-    850  f3eb							; ramp the scroll speed (sub-pixel speed-up with score)
-    851  f3eb		       a5 af		      lda	scrollSpeed
-    852  f3ed		       c9 60		      cmp	#SPEED_MAX
-    853  f3ef		       b0 2c		      bcs	.ccDone	; already at max
-    854  f3f1		       18		      clc
-    855  f3f2		       69 02		      adc	#SPEED_INC
-    856  f3f4		       85 af		      sta	scrollSpeed
-    857  f3f6		       60		      rts
-    858  f3f7				   .ccSkull
-    859  f3f7		       a9 01		      lda	#1
-    860  f3f9		       85 c4		      sta	gameState
-      0  f3fb					      TRIGGER_SFX	SFX_DEATH, DEATH_DUR
-      1  f3fb		       a9 04		      lda	#SFX_DEATH
-      2  f3fd		       85 c2		      sta	sfxId
-      3  f3ff		       a9 14		      lda	#DEATH_DUR
-      4  f401		       85 c3		      sta	sfxTimer
-    862  f403		       a9 42		      lda	#COL_GAMEOVER
-    863  f405		       85 09		      sta	COLUBK	; red tint; NewGame restores COL_BG on restart
-    864  f407							; high score = max(hiScore, score) over the low 4 digits
-    865  f407		       a5 c6		      lda	scoreBCD+1
-    866  f409		       c5 c9		      cmp	hiScore+1
-    867  f40b		       90 10		      bcc	.ccDone	; score's high pair < hiScore's
-    868  f40d		       d0 06		      bne	.ccNewHi	; score's high pair > hiScore's
-    869  f40f		       a5 c5		      lda	scoreBCD+0
-    870  f411		       c5 c8		      cmp	hiScore+0
-    871  f413		       90 08		      bcc	.ccDone	; equal high pair, low pair lower
-    872  f415				   .ccNewHi
-    873  f415		       a5 c5		      lda	scoreBCD+0
-    874  f417		       85 c8		      sta	hiScore+0
-    875  f419		       a5 c6		      lda	scoreBCD+1
-    876  f41b		       85 c9		      sta	hiScore+1
-    877  f41d				   .ccDone
-    878  f41d		       60		      rts
-    879  f41e
-    880  f41e							;-------------------------------------------------------------
-    881  f41e							; CheckRestart - during game over, a fresh fire press restarts.
-    882  f41e							;-------------------------------------------------------------
-    883  f41e				   CheckRestart
-    884  f41e		       a2 00		      ldx	#0
-    885  f420		       a5 0c		      lda	INPT4
-    886  f422		       30 09		      bmi	.crStore	; not pressed
-    887  f424		       a2 01		      ldx	#1
-    888  f426		       a5 82		      lda	btnPrev
-    889  f428		       d0 03		      bne	.crStore	; held since last frame -> no edge
-    890  f42a		       4c 31 f0 	      jmp	NewGame	; fresh press -> restart (keeps hiScore)
-    891  f42d				   .crStore
-    892  f42d		       86 82		      stx	btnPrev
-    893  f42f		       60		      rts
-    894  f430
-    895  f430							;-------------------------------------------------------------
-    896  f430							; CalcQuickPos - A = x (0..159) -> A = quickPos
-    897  f430							;   quickPos = (HMOVE fine nibble << 4) | delay count (low nibble).
-    898  f430							;   Fast divide-by-15 + tables, from examples/hmove74.asm. Uses Y, tempOne.
-    899  f430							;-------------------------------------------------------------
-    900  f430				   CalcQuickPos
-    901  f430		       85 85		      sta	tempOne
-    902  f432		       4a		      lsr
-    903  f433		       69 04		      adc	#4
-    904  f435		       4a		      lsr
-    905  f436		       4a		      lsr
-    906  f437		       4a		      lsr
-    907  f438		       65 85		      adc	tempOne
-    908  f43a		       6a		      ror
-    909  f43b		       4a		      lsr
-    910  f43c		       4a		      lsr
-    911  f43d		       4a		      lsr
-    912  f43e		       a8		      tay		; Y = x / 15
-    913  f43f		       b9 54 f4 	      lda	MultTab,y
-    914  f442		       38		      sec
-    915  f443		       e5 85		      sbc	tempOne
-    916  f445		       0a		      asl
-    917  f446		       0a		      asl
-    918  f447		       0a		      asl
-    919  f448		       0a		      asl
-    920  f449		       18		      clc
-    921  f44a		       79 5f f4 	      adc	DelayTab,y
-    922  f44d		       60		      rts
-    923  f44e
-    924  f44e							;-------------------------------------------------------------
-    925  f44e							; Tables
-    926  f44e							;-------------------------------------------------------------
-    927  f44e							; ENAM0 enable byte per floor (bit1 = enable). Floor 5 = no gap.
-    928  f44e				   GapOnTable
-    929  f44e		       02 02 02 02*	      .byte.b	2,2,2,2,2,0
-    930  f454
-    931  f454							; quickPos divide tables (from examples/hmove74.asm)
-    932  f454				   MultTab
-    933  f454		       e7 f6 05 14*	      .byte.b	-25,-10,5,20,35,50,65,80,95,110,-21
-    934  f45f				   DelayTab
-    935  f45f		       01 02 03 04*	      .byte.b	1,2,3,4,5,6,7,8,9,10,0
-    936  f46a
-    937  f46a							; Player run-cycle frames (bottom row first; index 7 = top row). Both frames
-    938  f46a							; live in the same page so the kernel selects one by low byte via PlayerFrameLo.
-    939  f46a							; PlayerSprite1 starts as a copy of frame 0 -- edit it to make the second pose.
-    940  f46a				   PlayerSprite0
-    941  f46a		       00		      .byte.b	%00000000	; offset 0 (bottom)
-    942  f46b		       00		      .byte.b	%00000000	;
-    943  f46c		       cc		      .byte.b	%11001100	; ll  ll
-    944  f46d		       fc		      .byte.b	%11111100	; llllll
-    945  f46e		       d4		      .byte.b	%11010100	; ll l l
-    946  f46f		       d4		      .byte.b	%11010100	; ll l l
-    947  f470		       fc		      .byte.b	%11111100	; llllll
-    948  f471		       00		      .byte.b	%00000000	; (offset 7, top)
-    949  f472				   PlayerSprite1
-    950  f472		       00		      .byte.b	%00000000	; offset 0 (bottom)
-    951  f473		       00		      .byte.b	%00000000
-    952  f474		       48		      .byte.b	%01001000	;  l  l
-    953  f475		       48		      .byte.b	%01001000	;  l  l
-    954  f476		       fc		      .byte.b	%11111100	; llllll
-    955  f477		       d4		      .byte.b	%11010100	; ll l l
-    956  f478		       d4		      .byte.b	%11010100	; ll l l
-    957  f479		       fc		      .byte.b	%11111100	; llllll  (offset 7, top)
-    958  f47a							; low-byte lookup for the two frames (indexed by animFrame)
-    959  f47a				   PlayerFrameLo
-    960  f47a		       6a 72		      .byte.b	<PlayerSprite0, <PlayerSprite1
-    961  f47c
-    962  f47c							; Entity sprite rows (bottom row first), defined as symbols so the base sprites
-    963  f47c							; AND the left/right slide shift tables (all in page f5, below) generate from the
-    964  f47c							; SAME source and never drift. Edit these rows to change the cone / skull art.
-    965  f47c		       00 00	   CONE0      =	%00000000
-    966  f47c		       00 00	   CONE1      =	%00000000
-    967  f47c		       00 ff	   CONE2      =	%11111111	; wide base
-    968  f47c		       00 42	   CONE3      =	%01000010
-    969  f47c		       00 7e	   CONE4      =	%01111110
-    970  f47c		       00 24	   CONE5      =	%00100100
-    971  f47c		       00 18	   CONE6      =	%00011000
-    972  f47c		       00 18	   CONE7      =	%00011000	; point (top)
-    973  f47c		       00 00	   SKULL0     =	%00000000
-    974  f47c		       00 00	   SKULL1     =	%00000000
-    975  f47c		       00 3c	   SKULL2     =	%00111100
-    976  f47c		       00 7e	   SKULL3     =	%01111110
-    977  f47c		       00 e7	   SKULL4     =	%11100111	; eyes
-    978  f47c		       00 bd	   SKULL5     =	%10111101
-    979  f47c		       00 7e	   SKULL6     =	%01111110
-    980  f47c		       00 3c	   SKULL7     =	%00111100	; top
-    981  f47c
-    982  f47c					      MAC	cone_rows
-    983  f47c					      .byte	(CONE0<<{1})&$FF,(CONE1<<{1})&$FF,(CONE2<<{1})&$FF,(CONE3<<{1})&$FF
-    984  f47c					      .byte	(CONE4<<{1})&$FF,(CONE5<<{1})&$FF,(CONE6<<{1})&$FF,(CONE7<<{1})&$FF
-    985  f47c					      ENDM		; {1} = left-shift amount (asl); 0 = base art
-    986  f47c					      MAC	skull_rows
-    987  f47c					      .byte	(SKULL0<<{1})&$FF,(SKULL1<<{1})&$FF,(SKULL2<<{1})&$FF,(SKULL3<<{1})&$FF
-    988  f47c					      .byte	(SKULL4<<{1})&$FF,(SKULL5<<{1})&$FF,(SKULL6<<{1})&$FF,(SKULL7<<{1})&$FF
-    989  f47c					      ENDM
-    990  f47c							; (ZeroSprite / ConeSprite / SkullSprite base art + the slide tables all live
-    991  f47c							;  together in page f5 -- see the block after JumpTabM0.)
-    992  f47c
-    993  f47c							; Entity lookups indexed by entType (0 none, 1 cone, 2 skull)
-    994  f47c				   EntColorTable
-    995  f47c		       00 2c 46 	      .byte.b	$00, COL_CONE, COL_SKULL
-    996  f47f				   EntSprLo
-    997  f47f		       30 38 40 	      .byte.b	<ZeroSprite, <ConeSprite, <SkullSprite
-    998  f482							; base low byte of each type's slide-shift table (indexed by entType); the
-    999  f482							; sliding sprite = SlideBaseLo[type] + (entSlide-1)*8. Type 0 never slides.
-   1000  f482				   SlideBaseLo
-   1001  f482		       00 48 80 	      .byte.b	$00, <ConeSlide, <SkullSlide
-   1002  f485							; Respawn type roll, indexed by (rng & 3): 50/50 cone / skull
-   1003  f485				   EntTypeRoll
-   1004  f485		       01 01 02 02	      .byte.b	ENT_CONE, ENT_CONE, ENT_SKULL, ENT_SKULL
-   1005  f489							; Staggered first-spawn delay per floor (frames) so the empty start fills in
-   1006  f489							; gradually from the right rather than all at once.
-   1007  f489				   InitDelayTab
-   1008  f489		       10 1c 28 34*	      .byte.b	16, 28, 40, 52, 64, 76
-   1009  f48f
-   1010  f48f							;-------------------------------------------------------------
-   1011  f48f							; Missile-0 cycle-74 strobe table (must stay within one page).
-   1012  f48f							;   Each entry strobes RESM0; the $1C (NOP abs) swallows the next
-   1013  f48f							;   entry's `sta RESM0`, so only the jumped-to strobe executes, then
-   1014  f48f							;   execution falls through to `sta HMOVE` at cycle ~74.
-   1015  f48f							;-------------------------------------------------------------
-   1016  f500					      org	$f500
-   1017  f500				   PosTblM0
-   1018  f500				   pM0_3
-   1019  f500		       85 12		      sta	RESM0
-   1020  f502		       1c		      .byte.b	$1C
-   1021  f503				   pM0_15
-   1022  f503		       85 12		      sta	RESM0
-   1023  f505		       1c		      .byte.b	$1C
-   1024  f506				   pM0_30
-   1025  f506		       85 12		      sta	RESM0
-   1026  f508		       1c		      .byte.b	$1C
-   1027  f509				   pM0_45
-   1028  f509		       85 12		      sta	RESM0
-   1029  f50b		       1c		      .byte.b	$1C
-   1030  f50c				   pM0_60
-   1031  f50c		       85 12		      sta	RESM0
-   1032  f50e		       1c		      .byte.b	$1C
-   1033  f50f				   pM0_75
-   1034  f50f		       85 12		      sta	RESM0
-   1035  f511		       1c		      .byte.b	$1C
-   1036  f512				   pM0_90
-   1037  f512		       85 12		      sta	RESM0
-   1038  f514		       1c		      .byte.b	$1C
-   1039  f515				   pM0_105
-   1040  f515		       85 12		      sta	RESM0
-   1041  f517		       1c		      .byte.b	$1C
-   1042  f518				   pM0_120
-   1043  f518		       85 12		      sta	RESM0
-   1044  f51a		       1c		      .byte.b	$1C
-   1045  f51b				   pM0_135
-   1046  f51b		       85 12		      sta	RESM0
-   1047  f51d		       1c		      .byte.b	$1C
-   1048  f51e				   pM0_150
-   1049  f51e		       85 12		      sta	RESM0
-   1050  f520		       85 2a		      sta	HMOVE
-   1051  f522		       85 02		      sta	WSYNC	; re-align: the positioning line ends here so the
-   1052  f524		       60		      rts		; band keeps an exact, identical scanline budget
-   1053  f525
-   1054  f525				   JumpTabM0
-   1055  f525		       00 03 06 09*	      .byte.b	<pM0_3, <pM0_15, <pM0_30, <pM0_45, <pM0_60, <pM0_75
-   1056  f52b		       12 15 18 1b*	      .byte.b	<pM0_90, <pM0_105, <pM0_120, <pM0_135, <pM0_150
-   1057  f530
-   1058  f530							;-------------------------------------------------------------
-   1059  f530							; ---- Entity sprites + edge-slide shift tables (all page f5) ----
-   1060  f530							; Base art (shift 0) and the asl 1..7 slide frames live together so a single
-   1061  f530							; high byte (>ZeroSprite) covers every entity draw. Generated from the CONEn/
-   1062  f530							; SKULLn row symbols so the slide frames track the art.
-   1063  f530				   ZeroSprite
-   1064  f530		       00 00 00 00*	      .byte.b	0,0,0,0,0,0,0,0
-   1065  f538				   ConeSprite
+     17  f0d8					      REPEND
+     18  f0d9		       ea		      nop
+     19  f0da					      REPEND
+    318  f0da		       85 10		      sta	RESP0	; coarse-position P0 and P1 together
+    319  f0dc		       85 11		      sta	RESP1
+    320  f0de		       85 2b		      sta	HMCLR	; clear stray motion (player left HMP0=$80)
+    321  f0e0		       a9 10		      lda	#$10
+    322  f0e2		       85 21		      sta	HMP1	; nudge P1 so its copies interleave with P0's
+    323  f0e4		       85 02		      sta	WSYNC	; vblank line 2
+    324  f0e6		       85 2a		      sta	HMOVE
+      0  f0e8					      SLEEP	24	; settle time after HMOVE before HMCLR
+      1  f0e8				   .CYCLES    SET	24
+      2  f0e8
+      3  f0e8				  -	      IF	.CYCLES < 2
+      4  f0e8				  -	      ECHO	"MACRO ERROR: 'SLEEP': Duration must be > 1"
+      5  f0e8				  -	      ERR
+      6  f0e8					      ENDIF
+      7  f0e8
+      8  f0e8				  -	      IF	.CYCLES & 1
+      9  f0e8				  -	      IFNCONST	NO_ILLEGAL_OPCODES
+     10  f0e8				  -	      nop	0
+     11  f0e8				  -	      ELSE
+     12  f0e8				  -	      bit	VSYNC
+     13  f0e8				  -	      ENDIF
+     14  f0e8				  -.CYCLES    SET	.CYCLES - 3
+     15  f0e8					      ENDIF
+     16  f0e8
+     17  f0e8					      REPEAT	.CYCLES / 2
+     18  f0e8		       ea		      nop
+     17  f0e8					      REPEND
+     18  f0e9		       ea		      nop
+     17  f0e9					      REPEND
+     18  f0ea		       ea		      nop
+     17  f0ea					      REPEND
+     18  f0eb		       ea		      nop
+     17  f0eb					      REPEND
+     18  f0ec		       ea		      nop
+     17  f0ec					      REPEND
+     18  f0ed		       ea		      nop
+     17  f0ed					      REPEND
+     18  f0ee		       ea		      nop
+     17  f0ee					      REPEND
+     18  f0ef		       ea		      nop
+     17  f0ef					      REPEND
+     18  f0f0		       ea		      nop
+     17  f0f0					      REPEND
+     18  f0f1		       ea		      nop
+     17  f0f1					      REPEND
+     18  f0f2		       ea		      nop
+     17  f0f2					      REPEND
+     18  f0f3		       ea		      nop
+     19  f0f4					      REPEND
+    326  f0f4		       85 2b		      sta	HMCLR
+    327  f0f6		       a9 01		      lda	#1
+    328  f0f8		       85 25		      sta	VDELP0	; vertical delay: enables the 6-digit retrigger
+    329  f0fa		       85 26		      sta	VDELP1
+    330  f0fc
+    331  f0fc		       a2 22		      ldx	#34	; remaining VBLANK lines (2 + 34 = 36)
+    332  f0fe				   VBlankLoop
+    333  f0fe		       85 02		      sta	WSYNC
+    334  f100		       ca		      dex
+    335  f101		       d0 fb		      bne	VBlankLoop
+    336  f103
+    337  f103		       a9 00		      lda	#0
+    338  f105		       85 01		      sta	VBLANK	; display on
+    339  f107
+    340  f107							;-------------------------------------------------------------
+    341  f107							; Visible kernel (192 lines = HUD 12 + 6 bands * 30)
+    342  f107							;-------------------------------------------------------------
+    343  f107							; --- HUD region: 6-digit score (12 WSYNC-exact lines) ---
+    344  f107		       a9 00		      lda	#0
+    345  f109		       85 0c		      sta	REFP1	; clear any slide-in reflect so score digits (GRP1) aren't mirrored
+    346  f10b		       a9 0e		      lda	#COL_BG
+    347  f10d		       85 08		      sta	COLUPF	; HUD line 0: playfield invisible behind the score
+    348  f10f		       20 00 f8 	      jsr	DrawDigits	; HUD lines 1-9 (DrawDigits ends on a WSYNC)
+    349  f112							; HUD line 10: restore game sprite state
+    350  f112		       a9 00		      lda	#0
+    351  f114		       85 25		      sta	VDELP0
+    352  f116		       85 26		      sta	VDELP1
+    353  f118		       85 05		      sta	NUSIZ1	; entity = single copy
+    354  f11a		       a9 30		      lda	#$30
+    355  f11c		       85 04		      sta	NUSIZ0	; missile 8px wide, player single copy
+    356  f11e		       85 02		      sta	WSYNC
+    357  f120							; HUD line 11: re-place the player P0 near PLAYER_X
+      0  f120					      SLEEP	PLAYER_SLEEP
+      1  f120				   .CYCLES    SET	PLAYER_SLEEP
+      2  f120
+      3  f120				  -	      IF	.CYCLES < 2
+      4  f120				  -	      ECHO	"MACRO ERROR: 'SLEEP': Duration must be > 1"
+      5  f120				  -	      ERR
+      6  f120					      ENDIF
+      7  f120
+      8  f120					      IF	.CYCLES & 1
+      9  f120					      IFNCONST	NO_ILLEGAL_OPCODES
+     10  f120		       04 00		      nop	0
+     11  f122				  -	      ELSE
+     12  f122				  -	      bit	VSYNC
+     13  f122					      ENDIF
+     14  f122				   .CYCLES    SET	.CYCLES - 3
+     15  f122					      ENDIF
+     16  f122
+     17  f122					      REPEAT	.CYCLES / 2
+     18  f122		       ea		      nop
+     17  f122					      REPEND
+     18  f123		       ea		      nop
+     17  f123					      REPEND
+     18  f124		       ea		      nop
+     17  f124					      REPEND
+     18  f125		       ea		      nop
+     17  f125					      REPEND
+     18  f126		       ea		      nop
+     17  f126					      REPEND
+     18  f127		       ea		      nop
+     17  f127					      REPEND
+     18  f128		       ea		      nop
+     17  f128					      REPEND
+     18  f129		       ea		      nop
+     17  f129					      REPEND
+     18  f12a		       ea		      nop
+     17  f12a					      REPEND
+     18  f12b		       ea		      nop
+     19  f12c					      REPEND
+    359  f12c		       85 10		      sta	RESP0
+    360  f12e		       a9 80		      lda	#$80
+    361  f130		       85 20		      sta	HMP0	; cycle-74 no-motion so band HMOVEs hold it
+    362  f132		       85 02		      sta	WSYNC
+    363  f134
+    364  f134							; Six platform bands
+    365  f134		       a9 06		      lda	#NUM_BANDS
+    366  f136		       85 83		      sta	bandCount
+    367  f138				   BandLoop
+    368  f138							; --- setbg line: background colour, player colour, missile off ---
+    369  f138		       85 02		      sta	WSYNC
+    370  f13a		       a9 0e		      lda	#COL_BG
+    371  f13c		       85 08		      sta	COLUPF
+    372  f13e		       a9 02		      lda	#COL_PLAYER
+    373  f140		       85 06		      sta	COLUP0
+    374  f142		       a9 00		      lda	#0
+    375  f144		       85 1d		      sta	ENAM0
+    376  f146
+    377  f146							; floor index = NUM_BANDS - bandCount, then position the gap missile
+    378  f146							; (Pos74M0 consumes exactly one scanline, HMOVE at cycle ~74)
+    379  f146		       a9 06		      lda	#NUM_BANDS
+    380  f148		       38		      sec
+    381  f149		       e5 83		      sbc	bandCount
+    382  f14b		       85 84		      sta	curFloor
+    383  f14d		       a8		      tay
+    384  f14e		       20 8d f2 	      jsr	Pos74M0	; position the gap missile (cycle-74)
+    385  f151		       a9 80		      lda	#$80
+    386  f153		       85 22		      sta	HMM0	; restore no-motion so the next HMOVE won't move it
+    387  f155		       a4 84		      ldy	curFloor
+    388  f157		       20 ab f2 	      jsr	Pos74P1	; position the entity sprite GRP1 (cycle-74)
+    389  f15a		       a9 80		      lda	#$80
+    390  f15c		       85 21		      sta	HMP1	; restore no-motion
+    391  f15e
+    392  f15e							; pick player sprite (blank unless this is the player's band); on the player
+    393  f15e							; band, select the current run-cycle frame (both frames share a page).
+    394  f15e		       a5 83		      lda	bandCount
+    395  f160		       c5 81		      cmp	playerBandCount
+    396  f162		       d0 0e		      bne	.blankSpr
+    397  f164		       a6 cb		      ldx	animFrame
+    398  f166		       bd 95 f4 	      lda	PlayerFrameLo,x
+    399  f169		       85 87		      sta	sprPtr
+    400  f16b		       a9 f4		      lda	#>PlayerSprite0
+    401  f16d		       85 88		      sta	sprPtr+1
+    402  f16f		       4c 7a f1 	      jmp	.selEnt
+    403  f172				   .blankSpr
+      0  f172					      SET_POINTER	sprPtr, ZeroSprite
+      1  f172				   .POINTER   SET	sprPtr
+      2  f172				   .ADDRESS   SET	ZeroSprite
+      3  f172
+      4  f172		       a9 30		      LDA	#<.ADDRESS
+      5  f174		       85 87		      STA	.POINTER
+      6  f176		       a9 f5		      LDA	#>.ADDRESS
+      7  f178		       85 88		      STA	.POINTER+1
+      8  f17a
+    405  f17a				   .selEnt
+    406  f17a							; entity sprite + colour for this floor's type. The low byte is precomputed
+    407  f17a							; (base or pre-shifted slide frame); the page is the base page normally, or
+    408  f17a							; the slide-table page while sliding (entSlide != 0).
+    409  f17a		       a4 84		      ldy	curFloor
+    410  f17c		       b6 9d		      ldx	entType,y
+    411  f17e		       bd 97 f4 	      lda	EntColorTable,x
+    412  f181		       85 07		      sta	COLUP1
+    413  f183		       b9 d3 00 	      lda	entDrawLo,y
+    414  f186		       85 be		      sta	entPtr
+    415  f188		       a9 f5		      lda	#>ZeroSprite	; base + slide frames all share this page
+    416  f18a		       85 bf		      sta	entPtr+1
+    417  f18c		       b9 d9 00 	      lda	entRefp,y	; reflect GRP1 while sliding in (else 0)
+    418  f18f		       85 0c		      sta	REFP1
+    419  f191
+    420  f191							; 2-line top air pad: drops the sprite within the band so its feet land on
+    421  f191							; the platform below. (GRP0/GRP1 are 0 here from the previous band's clear.)
+    422  f191		       85 02		      sta	WSYNC
+    423  f193		       85 02		      sta	WSYNC
+    424  f195
+    425  f195							; sprite window: each body row (7..2) is drawn on TWO scanlines so the
+    426  f195							; player / entity / cone render at 2x height from the same 8-byte data
+    427  f195							; (the 2600 has no vertical stretch -- you just hold GRPx for 2 lines).
+    428  f195							; No pad loop: the positioning lines above already render as background.
+    429  f195		       a0 07		      ldy	#SPRITE_H-1	; 7
+    430  f197				   .sprLoop
+    431  f197		       85 02		      sta	WSYNC	; row y, 1st scanline
+    432  f199		       b1 87		      lda	(sprPtr),y
+    433  f19b		       85 1b		      sta	GRP0
+    434  f19d		       b1 be		      lda	(entPtr),y
+    435  f19f		       85 1c		      sta	GRP1
+    436  f1a1		       85 02		      sta	WSYNC	; row y, 2nd scanline (GRP0/GRP1 hold => 2x tall)
+    437  f1a3		       88		      dey
+    438  f1a4		       c0 01		      cpy	#1
+    439  f1a6		       d0 ef		      bne	.sprLoop	; rows 7..2 (the body), each twice = 12 lines
+    440  f1a8
+    441  f1a8							; Still on the last body line (row 2 = feet). After the beam has drawn the
+    442  f1a8							; player (~pixel 22), recolour the missile to background and enable the gap:
+    443  f1a8							; it stays invisible on this background line, but is then ready CLIP-FREE for
+    444  f1a8							; the first green line below -- so the gap shows full-height and the feet sit
+    445  f1a8							; directly on the platform (no blank foot row, no float).
+      0  f1a8					      SLEEP	24	; wait past the player sprite before recolouring P0
+      1  f1a8				   .CYCLES    SET	24
+      2  f1a8
+      3  f1a8				  -	      IF	.CYCLES < 2
+      4  f1a8				  -	      ECHO	"MACRO ERROR: 'SLEEP': Duration must be > 1"
+      5  f1a8				  -	      ERR
+      6  f1a8					      ENDIF
+      7  f1a8
+      8  f1a8				  -	      IF	.CYCLES & 1
+      9  f1a8				  -	      IFNCONST	NO_ILLEGAL_OPCODES
+     10  f1a8				  -	      nop	0
+     11  f1a8				  -	      ELSE
+     12  f1a8				  -	      bit	VSYNC
+     13  f1a8				  -	      ENDIF
+     14  f1a8				  -.CYCLES    SET	.CYCLES - 3
+     15  f1a8					      ENDIF
+     16  f1a8
+     17  f1a8					      REPEAT	.CYCLES / 2
+     18  f1a8		       ea		      nop
+     17  f1a8					      REPEND
+     18  f1a9		       ea		      nop
+     17  f1a9					      REPEND
+     18  f1aa		       ea		      nop
+     17  f1aa					      REPEND
+     18  f1ab		       ea		      nop
+     17  f1ab					      REPEND
+     18  f1ac		       ea		      nop
+     17  f1ac					      REPEND
+     18  f1ad		       ea		      nop
+     17  f1ad					      REPEND
+     18  f1ae		       ea		      nop
+     17  f1ae					      REPEND
+     18  f1af		       ea		      nop
+     17  f1af					      REPEND
+     18  f1b0		       ea		      nop
+     17  f1b0					      REPEND
+     18  f1b1		       ea		      nop
+     17  f1b1					      REPEND
+     18  f1b2		       ea		      nop
+     17  f1b2					      REPEND
+     18  f1b3		       ea		      nop
+     19  f1b4					      REPEND
+    447  f1b4		       a9 0e		      lda	#COL_BG
+    448  f1b6		       85 06		      sta	COLUP0
+    449  f1b8		       a4 84		      ldy	curFloor
+    450  f1ba		       b9 69 f4 	      lda	GapOnTable,y
+    451  f1bd		       85 1d		      sta	ENAM0
+    452  f1bf
+    453  f1bf							; green top rows. In green line 1's HBLANK (before pixel 0) clear GRP0/GRP1
+    454  f1bf							; AND both VDEL "old" latches (double sta-pair: a GRP1 write refreshes GRP0's
+    455  f1bf							; old latch and vice-versa) so the feet don't bleed onto the platform and no
+    456  f1bf							; stale entity row reaches the score next frame (where VDELP1=1 displays it).
+    457  f1bf		       85 02		      sta	WSYNC
+    458  f1c1		       a9 00		      lda	#0
+    459  f1c3		       85 1b		      sta	GRP0
+    460  f1c5		       85 1c		      sta	GRP1
+    461  f1c7		       85 1b		      sta	GRP0
+    462  f1c9		       85 1c		      sta	GRP1
+    463  f1cb		       a9 c8		      lda	#COL_GREEN
+    464  f1cd		       85 08		      sta	COLUPF
+    465  f1cf		       a2 04		      ldx	#BAND_GREEN-1
+    466  f1d1				   .grnLoop
+    467  f1d1		       85 02		      sta	WSYNC
+    468  f1d3		       ca		      dex
+    469  f1d4		       d0 fb		      bne	.grnLoop
+    470  f1d6
+    471  f1d6							; grey underside rows
+    472  f1d6		       85 02		      sta	WSYNC
+    473  f1d8		       a9 06		      lda	#COL_GREY
+    474  f1da		       85 08		      sta	COLUPF
+    475  f1dc		       a2 05		      ldx	#BAND_GREY-1
+    476  f1de				   .gryLoop
+    477  f1de		       85 02		      sta	WSYNC
+    478  f1e0		       ca		      dex
+    479  f1e1		       d0 fb		      bne	.gryLoop
+    480  f1e3
+    481  f1e3		       c6 83		      dec	bandCount
+    482  f1e5		       f0 03		      beq	.bandsDone
+    483  f1e7		       4c 38 f1 	      jmp	BandLoop	; (band body > 128 bytes, so jmp not bne)
+    484  f1ea				   .bandsDone
+    485  f1ea
+    486  f1ea							; turn the missile off before leaving the visible area
+    487  f1ea		       a9 00		      lda	#0
+    488  f1ec		       85 1d		      sta	ENAM0
+    489  f1ee
+    490  f1ee							;-------------------------------------------------------------
+    491  f1ee							; Overscan (~30 lines via timer) - game logic + positioning precompute
+    492  f1ee							;-------------------------------------------------------------
+    493  f1ee		       a9 02		      lda	#2
+    494  f1f0		       85 01		      sta	VBLANK
+    495  f1f2		       a9 23		      lda	#35
+    496  f1f4		       8d 96 02 	      sta	TIM64T
+    497  f1f7
+    498  f1f7		       e6 c1		      inc	frameCnt	; free-running frame timer (all states) for RNG reseed
+    499  f1f9
+    500  f1f9		       a5 c4		      lda	gameState
+    501  f1fb		       d0 13		      bne	.gsFrozen
+    502  f1fd							; CheckCollision must run BEFORE input/update: CXPPMM reflects the
+    503  f1fd							; frame just rendered, where playerFloor still matches.
+    504  f1fd		       20 d4 f3 	      jsr	CheckCollision
+    505  f200		       a5 c4		      lda	gameState
+    506  f202		       d0 0f		      bne	.gsAfter	; just died this frame -> skip further updates
+    507  f204		       20 d3 f2 	      jsr	ReadInput
+    508  f207		       20 09 f3 	      jsr	UpdateWorld
+    509  f20a		       20 f0 f2 	      jsr	AnimatePlayer	; advance the run cycle (frozen while game over)
+    510  f20d		       4c 13 f2 	      jmp	.gsAfter
+    511  f210				   .gsFrozen
+    512  f210		       20 39 f4 	      jsr	CheckRestart	; world frozen; fresh fire press restarts
+    513  f213				   .gsAfter
+    514  f213		       20 da f8 	      jsr	UpdateSound	; advance SFX every frame (incl. the game-over freeze)
+    515  f216							; game-over text cycle: 240-frame period (120 GAMEOVER + 120 HInnnn)
+    516  f216		       e6 ca		      inc	goCnt
+    517  f218		       a5 ca		      lda	goCnt
+    518  f21a		       c9 f0		      cmp	#240
+    519  f21c		       90 04		      bcc	.goCntOk
+    520  f21e		       a9 00		      lda	#0
+    521  f220		       85 ca		      sta	goCnt
+    522  f222				   .goCntOk
+    523  f222
+    524  f222							; Precompute each gap's quickPos + strobe-table entry (in overscan),
+    525  f222							; so the visible kernel positions in one fixed-time scanline.
+    526  f222		       a2 05		      ldx	#5
+    527  f224				   .precomp
+    528  f224							; gap (missile 0)
+    529  f224		       b5 8b		      lda	gapX,x
+    530  f226		       86 86		      stx	tempFloor
+    531  f228		       20 4b f4 	      jsr	CalcQuickPos	; A = quickPos (clobbers Y, tempOne)
+    532  f22b		       a6 86		      ldx	tempFloor
+    533  f22d		       95 91		      sta	gapQuick,x
+    534  f22f		       29 0f		      and	#$0F	; low nibble = delay count = jump-table index
+    535  f231		       a8		      tay
+    536  f232		       b9 25 f5 	      lda	JumpTabM0,y
+    537  f235		       95 97		      sta	posJmpLo,x
+    538  f237							; entity (GRP1) - PosTblP1 mirrors PosTblM0, so JumpTabM0 low bytes apply
+    539  f237		       b5 a3		      lda	entX,x
+    540  f239		       86 86		      stx	tempFloor
+    541  f23b		       20 4b f4 	      jsr	CalcQuickPos
+    542  f23e		       a6 86		      ldx	tempFloor
+    543  f240		       95 b2		      sta	entQuick,x
+    544  f242		       29 0f		      and	#$0F
+    545  f244		       a8		      tay
+    546  f245		       b9 25 f5 	      lda	JumpTabM0,y
+    547  f248		       95 b8		      sta	entJmpLo,x
+    548  f24a							; resolve this floor's entity sprite low byte + REFP1. entSlide 0 = base
+    549  f24a							; sprite, no reflect. Otherwise shift N = entSlide & $7F selects the slide
+    550  f24a							; frame (SlideBaseLo[type] + (N-1)*8); the $80 flag (slide-in) sets REFP1.
+    551  f24a		       b5 cd		      lda	entSlide,x
+    552  f24c		       f0 1d		      beq	.pcBase
+    553  f24e		       29 7f		      and	#$7F	; N = shift amount (strip the slide-in flag)
+    554  f250		       38		      sec
+    555  f251		       e9 01		      sbc	#1	; N-1 (0..6)
+    556  f253		       0a		      asl
+    557  f254		       0a		      asl
+    558  f255		       0a		      asl		; * 8 (rows per shift frame)
+    559  f256		       b4 9d		      ldy	entType,x
+    560  f258		       18		      clc
+    561  f259		       79 9d f4 	      adc	SlideBaseLo,y
+    562  f25c		       95 d3		      sta	entDrawLo,x
+    563  f25e		       b5 cd		      lda	entSlide,x
+    564  f260		       29 80		      and	#$80	; slide-in flag -> REFP1 bit3 ($80 >> 4 = $08)
+    565  f262		       4a		      lsr
+    566  f263		       4a		      lsr
+    567  f264		       4a		      lsr
+    568  f265		       4a		      lsr
+    569  f266		       95 d9		      sta	entRefp,x
+    570  f268		       4c 76 f2 	      jmp	.pcSprDone
+    571  f26b				   .pcBase
+    572  f26b		       b4 9d		      ldy	entType,x
+    573  f26d		       b9 9a f4 	      lda	EntSprLo,y
+    574  f270		       95 d3		      sta	entDrawLo,x
+    575  f272		       a9 00		      lda	#0
+    576  f274		       95 d9		      sta	entRefp,x
+    577  f276				   .pcSprDone
+    578  f276		       ca		      dex
+    579  f277		       10 ab		      bpl	.precomp
+    580  f279
+    581  f279							; playerBandCount = NUM_BANDS - playerFloor (for next frame's kernel)
+    582  f279		       a9 06		      lda	#NUM_BANDS
+    583  f27b		       38		      sec
+    584  f27c		       e5 80		      sbc	playerFloor
+    585  f27e		       85 81		      sta	playerBandCount
+    586  f280
+    587  f280							; build the score's digit pointers for next frame's HUD
+    588  f280		       20 5a f8 	      jsr	GetDigitPtrs
+    589  f283
+    590  f283				   WaitOverscan
+    591  f283		       ad 84 02 	      lda	INTIM
+    592  f286		       d0 fb		      bne	WaitOverscan
+    593  f288		       85 02		      sta	WSYNC
+    594  f28a
+    595  f28a		       4c ab f0 	      jmp	NextFrame
+    596  f28d
+    597  f28d							;-------------------------------------------------------------
+    598  f28d							; Pos74M0 - position Missile 0 at gap[curFloor] in one scanline.
+    599  f28d							;   IN: Y = curFloor. Uses precomputed gapQuick / posJmpLo.
+    600  f28d							;   Cycle-74 HMOVE: clean edge-to-edge positioning, no comb.
+    601  f28d							;-------------------------------------------------------------
+    602  f28d				   Pos74M0
+    603  f28d		       b9 91 00 	      lda	gapQuick,y
+    604  f290		       85 22		      sta	HMM0	; high nibble = fine motion (low nibble ignored)
+    605  f292		       29 0f		      and	#$0F
+    606  f294		       aa		      tax		; X = delay count
+    607  f295		       b9 97 00 	      lda	posJmpLo,y
+    608  f298		       85 89		      sta	posJmp
+    609  f29a		       a9 f5		      lda	#>PosTblM0
+    610  f29c		       85 8a		      sta	posJmp+1
+    611  f29e		       85 02		      sta	WSYNC
+    612  f2a0							; 9 cycles of dead time (matches hmove74 calibration)
+    613  f2a0		       ea		      nop		; 2
+    614  f2a1		       ea		      nop		; 2
+    615  f2a2		       ea		      nop		; 2
+    616  f2a3		       04 ea		      .byte.b	$04,$EA	; NOP zp (3 cycles)
+    617  f2a5				   .wait74
+    618  f2a5		       ca		      dex
+    619  f2a6		       10 fd		      bpl	.wait74
+    620  f2a8		       6c 89 00 	      jmp	(posJmp)	; into PosTblM0; strobes RESM0, HMOVE @ ~74, rts
+    621  f2ab
+    622  f2ab							;-------------------------------------------------------------
+    623  f2ab							; Pos74P1 - position the entity sprite (GRP1) at ent[curFloor].
+    624  f2ab							;   IN: Y = curFloor. Uses entQuick / entJmpLo. Same technique as
+    625  f2ab							;   Pos74M0, but strobes RESP1 (PosTblP1) and uses HMP1.
+    626  f2ab							;-------------------------------------------------------------
+    627  f2ab				   Pos74P1
+    628  f2ab		       b9 b2 00 	      lda	entQuick,y
+    629  f2ae		       85 21		      sta	HMP1
+    630  f2b0		       29 0f		      and	#$0F
+    631  f2b2		       aa		      tax
+    632  f2b3		       b9 b8 00 	      lda	entJmpLo,y
+    633  f2b6		       85 89		      sta	posJmp
+    634  f2b8		       a9 f6		      lda	#>PosTblP1
+    635  f2ba		       85 8a		      sta	posJmp+1
+    636  f2bc		       85 02		      sta	WSYNC
+    637  f2be		       ea		      nop
+    638  f2bf		       ea		      nop
+    639  f2c0		       ea		      nop
+    640  f2c1		       04 ea		      .byte.b	$04,$EA
+    641  f2c3				   .wait74p
+    642  f2c3		       ca		      dex
+    643  f2c4		       10 fd		      bpl	.wait74p
+    644  f2c6		       6c 89 00 	      jmp	(posJmp)	; into PosTblP1; strobes RESP1, HMOVE @ ~74, rts
+    645  f2c9
+    646  f2c9							;-------------------------------------------------------------
+    647  f2c9							; Rng - 8-bit LFSR. Advances and returns the new value in A.
+    648  f2c9							;-------------------------------------------------------------
+    649  f2c9				   Rng
+    650  f2c9		       a5 c0		      lda	rng
+    651  f2cb		       4a		      lsr
+    652  f2cc		       90 02		      bcc	.rngNoFb
+    653  f2ce		       49 b4		      eor	#$B4
+    654  f2d0				   .rngNoFb
+    655  f2d0		       85 c0		      sta	rng
+    656  f2d2		       60		      rts
+    657  f2d3
+    658  f2d3							;-------------------------------------------------------------
+    659  f2d3							; ReadInput - one-button jump-up (rising edge of fire button)
+    660  f2d3							;-------------------------------------------------------------
+    661  f2d3				   ReadInput
+    662  f2d3		       a2 00		      ldx	#0	; assume not pressed
+    663  f2d5		       a5 0c		      lda	INPT4
+    664  f2d7		       30 14		      bmi	.store	; bit7 set => not pressed
+    665  f2d9		       a2 01		      ldx	#1	; pressed
+    666  f2db		       a5 82		      lda	btnPrev
+    667  f2dd		       d0 0e		      bne	.store	; held => no new press
+    668  f2df		       a5 80		      lda	playerFloor
+    669  f2e1		       f0 0a		      beq	.store	; already at top tier
+    670  f2e3		       c6 80		      dec	playerFloor	; jump up one tier
+      0  f2e5					      TRIGGER_SFX	SFX_JUMP, JUMP_DUR
+      1  f2e5		       a9 01		      lda	#SFX_JUMP
+      2  f2e7		       85 c2		      sta	sfxId
+      3  f2e9		       a9 0c		      lda	#JUMP_DUR
+      4  f2eb		       85 c3		      sta	sfxTimer
+    672  f2ed				   .store
+    673  f2ed		       86 82		      stx	btnPrev
+    674  f2ef		       60		      rts
+    675  f2f0
+    676  f2f0							;-------------------------------------------------------------
+    677  f2f0							; AnimatePlayer - tick the run-cycle frame. Swaps frame every animTimer
+    678  f2f0							;   frames; the interval shortens with scroll speed so the player's legs
+    679  f2f0							;   move faster as the world speeds up.
+    680  f2f0							;   interval = ANIM_BASE - (scrollSpeed >> 3)
+    681  f2f0							;-------------------------------------------------------------
+    682  f2f0				   AnimatePlayer
+    683  f2f0		       c6 cc		      dec	animTimer
+    684  f2f2		       d0 14		      bne	.apDone
+    685  f2f4		       a5 cb		      lda	animFrame
+    686  f2f6		       49 01		      eor	#1
+    687  f2f8		       85 cb		      sta	animFrame	; toggle 0 <-> 1
+    688  f2fa		       a5 af		      lda	scrollSpeed
+    689  f2fc		       4a		      lsr
+    690  f2fd		       4a		      lsr
+    691  f2fe		       4a		      lsr		; scrollSpeed >> 3
+    692  f2ff		       85 cc		      sta	animTimer	; (temp)
+    693  f301		       a9 16		      lda	#ANIM_BASE
+    694  f303		       38		      sec
+    695  f304		       e5 cc		      sbc	animTimer
+    696  f306		       85 cc		      sta	animTimer	; reload shortened interval
+    697  f308				   .apDone
+    698  f308		       60		      rts
+    699  f309
+    700  f309							;-------------------------------------------------------------
+    701  f309							; UpdateWorld - scroll gaps left, wrap, and fall-through check
+    702  f309							;-------------------------------------------------------------
+    703  f309				   UpdateWorld
+    704  f309							; advance the PRNG once per frame so respawns stay varied
+    705  f309		       20 c9 f2 	      jsr	Rng
+    706  f30c
+    707  f30c							; Sub-pixel speed: accumulate the fractional speed; the carry is an
+    708  f30c							; extra whole pixel this frame, so the scroll step is 1 or 2 px.
+    709  f30c							; (scrollSpeed ramps with the score; see CheckCollision.)
+    710  f30c		       a5 b0		      lda	scrollFrac
+    711  f30e		       18		      clc
+    712  f30f		       65 af		      adc	scrollSpeed	; accumulate 1/32-px units
+    713  f311		       aa		      tax		; X = total (whole.frac)
+    714  f312		       29 1f		      and	#$1F
+    715  f314		       85 b0		      sta	scrollFrac	; carry the fraction (low 5 bits) to next frame
+    716  f316		       8a		      txa
+    717  f317		       4a		      lsr
+    718  f318		       4a		      lsr
+    719  f319		       4a		      lsr
+    720  f31a		       4a		      lsr
+    721  f31b		       4a		      lsr		; whole pixels this frame = total >> 5
+    722  f31c		       85 b1		      sta	scrollStep
+    723  f31e
+    724  f31e							; Everything below advances by scrollStep in ONE pass (O(1)) rather than a
+    725  f31e							; per-pixel loop, so the overscan cost stays flat as the speed ramps -- the
+    726  f31e							; per-pixel loop was up to 4x work at top speed and overran the overscan
+    727  f31e							; timer (causing the screen to roll, worst on the heavier cone-pickup frame).
+    728  f31e
+    729  f31e							; --- scroll gaps (floors 0..4): gapX -= step, wrap <=0 back to GAP_WRAP ---
+    730  f31e		       a2 04		      ldx	#4
+    731  f320				   .gapLoop
+    732  f320		       b5 8b		      lda	gapX,x
+    733  f322		       38		      sec
+    734  f323		       e5 b1		      sbc	scrollStep
+    735  f325		       90 02		      bcc	.gapWrap	; underflowed past 0 -> wrap in from the right edge
+    736  f327		       d0 03		      bne	.gapStore	; still > 0
+    737  f329				   .gapWrap		; A is 0 or the negative remainder; +GAP_WRAP re-enters
+    738  f329		       18		      clc
+    739  f32a		       69 9f		      adc	#GAP_WRAP
+    740  f32c				   .gapStore
+    741  f32c		       95 8b		      sta	gapX,x
+    742  f32e		       ca		      dex
+    743  f32f		       10 ef		      bpl	.gapLoop
+    744  f331
+    745  f331							; --- entities: advance position / slide / respawn wait, each by scrollStep ---
+    746  f331		       a2 05		      ldx	#5
+    747  f333				   .entLoop
+    748  f333		       b5 9d		      lda	entType,x
+    749  f335		       f0 45		      beq	.entWaiting	; hidden -> count down the respawn delay
+    750  f337		       b5 cd		      lda	entSlide,x
+    751  f339		       f0 28		      beq	.entScroll	; 0 -> normal scroll
+    752  f33b		       30 13		      bmi	.entSlideIn	; $80|N -> sliding IN from the right edge
+    753  f33d							; 1..7 -> sliding OUT the left edge: grow the shift, hide once fully off
+    754  f33d		       18		      clc
+    755  f33e		       65 b1		      adc	scrollStep
+    756  f340		       c9 08		      cmp	#8
+    757  f342		       90 1a		      bcc	.entSlideStore	; 1..7 still partly on-screen
+    758  f344		       a9 00		      lda	#0
+    759  f346		       95 9d		      sta	entType,x	; fully off the left edge -> hide + arm respawn
+    760  f348		       95 cd		      sta	entSlide,x
+    761  f34a		       20 c9 f3 	      jsr	SetRespawnDelay
+    762  f34d		       4c aa f3 	      jmp	.entNext
+    763  f350				   .entSlideIn
+    764  f350		       38		      sec
+    765  f351		       e5 b1		      sbc	scrollStep	; $80|N -> shrink N toward $80 (grow in from the right)
+    766  f353		       c9 81		      cmp	#$81
+    767  f355		       b0 07		      bcs	.entSlideStore	; still >= $81 -> entering
+    768  f357		       a9 00		      lda	#0
+    769  f359		       95 cd		      sta	entSlide,x	; reached $80 (or past) -> fully in, normal scroll
+    770  f35b		       4c aa f3 	      jmp	.entNext
+    771  f35e				   .entSlideStore
+    772  f35e		       95 cd		      sta	entSlide,x
+    773  f360		       4c aa f3 	      jmp	.entNext
+    774  f363				   .entScroll
+    775  f363		       b5 a3		      lda	entX,x
+    776  f365		       38		      sec
+    777  f366		       e5 b1		      sbc	scrollStep
+    778  f368		       90 07		      bcc	.entEdge	; passed the left edge
+    779  f36a		       f0 05		      beq	.entEdge	; reached x = 0
+    780  f36c		       95 a3		      sta	entX,x
+    781  f36e		       4c aa f3 	      jmp	.entNext
+    782  f371				   .entEdge
+    783  f371		       a9 00		      lda	#0
+    784  f373		       95 a3		      sta	entX,x	; clamp at the left edge
+    785  f375		       a9 01		      lda	#1
+    786  f377		       95 cd		      sta	entSlide,x	; begin slide-out (kernel draws asl x1 at x=0)
+    787  f379		       4c aa f3 	      jmp	.entNext
+    788  f37c				   .entWaiting
+    789  f37c		       b5 a9		      lda	entDelay,x
+    790  f37e		       38		      sec
+    791  f37f		       e5 b1		      sbc	scrollStep	; advance the wait by this frame's step (speed-linked)
+    792  f381		       90 07		      bcc	.entSpawn
+    793  f383		       f0 05		      beq	.entSpawn
+    794  f385		       95 a9		      sta	entDelay,x
+    795  f387		       4c aa f3 	      jmp	.entNext
+    796  f38a				   .entSpawn
+    797  f38a							; delay elapsed -> respawn, but not over this floor's gap. If the gap is in
+    798  f38a							; the spawn zone, wait a little and recheck (same speed keeps them apart).
+    799  f38a		       b5 8b		      lda	gapX,x
+    800  f38c		       c9 91		      cmp	#GAP_SPAWN_CLEAR
+    801  f38e		       90 07		      bcc	.doSpawn
+    802  f390		       a9 10		      lda	#ENT_DEFER
+    803  f392		       95 a9		      sta	entDelay,x
+    804  f394		       4c aa f3 	      jmp	.entNext
+    805  f397				   .doSpawn
+    806  f397		       20 c9 f2 	      jsr	Rng
+    807  f39a		       29 03		      and	#3
+    808  f39c		       a8		      tay
+    809  f39d		       b9 a0 f4 	      lda	EntTypeRoll,y
+    810  f3a0		       95 9d		      sta	entType,x
+    811  f3a2		       a9 98		      lda	#ENT_WRAP
+    812  f3a4		       95 a3		      sta	entX,x
+    813  f3a6		       a9 87		      lda	#$80|7	; begin sliding IN from the right edge (reflected)
+    814  f3a8		       95 cd		      sta	entSlide,x
+    815  f3aa				   .entNext
+    816  f3aa		       ca		      dex
+    817  f3ab		       10 86		      bpl	.entLoop
+    818  f3ad
+    819  f3ad							; --- fall-through (once per frame): gap under the player? ---
+    820  f3ad		       a5 80		      lda	playerFloor
+    821  f3af		       c9 05		      cmp	#5
+    822  f3b1		       b0 15		      bcs	.noFall	; bottom tier is solid/safe
+    823  f3b3		       aa		      tax
+    824  f3b4		       b5 8b		      lda	gapX,x
+    825  f3b6		       c9 13		      cmp	#FALL_HI+1
+    826  f3b8		       b0 0e		      bcs	.noFall	; gap is right of the player
+    827  f3ba		       c9 0e		      cmp	#FALL_LO
+    828  f3bc		       90 0a		      bcc	.noFall	; gap is left of the player
+    829  f3be		       e6 80		      inc	playerFloor	; fall down one tier
+      0  f3c0					      TRIGGER_SFX	SFX_DROP, DROP_DUR
+      1  f3c0		       a9 02		      lda	#SFX_DROP
+      2  f3c2		       85 c2		      sta	sfxId
+      3  f3c4		       a9 0c		      lda	#DROP_DUR
+      4  f3c6		       85 c3		      sta	sfxTimer
+    831  f3c8				   .noFall
+    832  f3c8		       60		      rts
+    833  f3c9
+    834  f3c9							;-------------------------------------------------------------
+    835  f3c9							; SetRespawnDelay - arm entDelay[X] with a randomised off-screen wait.
+    836  f3c9							;-------------------------------------------------------------
+    837  f3c9				   SetRespawnDelay
+    838  f3c9		       20 c9 f2 	      jsr	Rng
+    839  f3cc		       29 7f		      and	#ENT_DELAY_MASK
+    840  f3ce		       18		      clc
+    841  f3cf		       69 20		      adc	#ENT_DELAY_MIN
+    842  f3d1		       95 a9		      sta	entDelay,x
+    843  f3d3		       60		      rts
+    844  f3d4
+    845  f3d4							;-------------------------------------------------------------
+    846  f3d4							; CheckCollision - player vs the entity on the player's floor.
+    847  f3d4							;   cone  -> +1 to the BCD score, entity consumed.
+    848  f3d4							;   skull -> game over (freeze + red background).
+    849  f3d4							;-------------------------------------------------------------
+    850  f3d4				   CheckCollision
+    851  f3d4		       a5 07		      lda	CXPPMM
+    852  f3d6		       10 60		      bpl	.ccDone	; bit7 (P0-P1) clear -> player didn't touch an entity
+    853  f3d8							; player's GRP0 only draws on its own floor, so a P0-P1 hit is the
+    854  f3d8							; entity on playerFloor. Act on its type.
+    855  f3d8		       a6 80		      ldx	playerFloor
+    856  f3da		       b5 9d		      lda	entType,x
+    857  f3dc		       f0 5a		      beq	.ccDone	; guard: no entity here
+    858  f3de		       c9 02		      cmp	#ENT_SKULL
+    859  f3e0		       f0 30		      beq	.ccSkull
+      0  f3e2					      TRIGGER_SFX	SFX_CONE, CONE_DUR
+      1  f3e2		       a9 03		      lda	#SFX_CONE
+      2  f3e4		       85 c2		      sta	sfxId
+      3  f3e6		       a9 10		      lda	#CONE_DUR
+      4  f3e8		       85 c3		      sta	sfxTimer
+    861  f3ea							; cone collected: +1 (BCD). GetDigitPtrs shows scoreBCD+2 as the
+    862  f3ea							; leftmost (most-significant) digits, so the +1 must land on the
+    863  f3ea							; least-significant byte scoreBCD+0 and carry up toward +2.
+    864  f3ea		       f8		      sed
+    865  f3eb		       a5 c5		      lda	scoreBCD+0
+    866  f3ed		       18		      clc
+    867  f3ee		       69 01		      adc	#1
+    868  f3f0		       85 c5		      sta	scoreBCD+0
+    869  f3f2		       a5 c6		      lda	scoreBCD+1
+    870  f3f4		       69 00		      adc	#0
+    871  f3f6		       85 c6		      sta	scoreBCD+1
+    872  f3f8		       a5 c7		      lda	scoreBCD+2
+    873  f3fa		       69 00		      adc	#0
+    874  f3fc		       85 c7		      sta	scoreBCD+2
+    875  f3fe		       d8		      cld
+    876  f3ff		       a9 00		      lda	#0
+    877  f401		       95 9d		      sta	entType,x	; cone consumed
+    878  f403		       20 c9 f3 	      jsr	SetRespawnDelay	; wait before a new entity enters this floor
+    879  f406							; ramp the scroll speed (sub-pixel speed-up with score)
+    880  f406		       a5 af		      lda	scrollSpeed
+    881  f408		       c9 60		      cmp	#SPEED_MAX
+    882  f40a		       b0 2c		      bcs	.ccDone	; already at max
+    883  f40c		       18		      clc
+    884  f40d		       69 02		      adc	#SPEED_INC
+    885  f40f		       85 af		      sta	scrollSpeed
+    886  f411		       60		      rts
+    887  f412				   .ccSkull
+    888  f412		       a9 01		      lda	#1
+    889  f414		       85 c4		      sta	gameState
+      0  f416					      TRIGGER_SFX	SFX_DEATH, DEATH_DUR
+      1  f416		       a9 04		      lda	#SFX_DEATH
+      2  f418		       85 c2		      sta	sfxId
+      3  f41a		       a9 14		      lda	#DEATH_DUR
+      4  f41c		       85 c3		      sta	sfxTimer
+    891  f41e		       a9 42		      lda	#COL_GAMEOVER
+    892  f420		       85 09		      sta	COLUBK	; red tint; NewGame restores COL_BG on restart
+    893  f422							; high score = max(hiScore, score) over the low 4 digits
+    894  f422		       a5 c6		      lda	scoreBCD+1
+    895  f424		       c5 c9		      cmp	hiScore+1
+    896  f426		       90 10		      bcc	.ccDone	; score's high pair < hiScore's
+    897  f428		       d0 06		      bne	.ccNewHi	; score's high pair > hiScore's
+    898  f42a		       a5 c5		      lda	scoreBCD+0
+    899  f42c		       c5 c8		      cmp	hiScore+0
+    900  f42e		       90 08		      bcc	.ccDone	; equal high pair, low pair lower
+    901  f430				   .ccNewHi
+    902  f430		       a5 c5		      lda	scoreBCD+0
+    903  f432		       85 c8		      sta	hiScore+0
+    904  f434		       a5 c6		      lda	scoreBCD+1
+    905  f436		       85 c9		      sta	hiScore+1
+    906  f438				   .ccDone
+    907  f438		       60		      rts
+    908  f439
+    909  f439							;-------------------------------------------------------------
+    910  f439							; CheckRestart - during game over, a fresh fire press restarts.
+    911  f439							;-------------------------------------------------------------
+    912  f439				   CheckRestart
+    913  f439		       a2 00		      ldx	#0
+    914  f43b		       a5 0c		      lda	INPT4
+    915  f43d		       30 09		      bmi	.crStore	; not pressed
+    916  f43f		       a2 01		      ldx	#1
+    917  f441		       a5 82		      lda	btnPrev
+    918  f443		       d0 03		      bne	.crStore	; held since last frame -> no edge
+    919  f445		       4c 31 f0 	      jmp	NewGame	; fresh press -> restart (keeps hiScore)
+    920  f448				   .crStore
+    921  f448		       86 82		      stx	btnPrev
+    922  f44a		       60		      rts
+    923  f44b
+    924  f44b							;-------------------------------------------------------------
+    925  f44b							; CalcQuickPos - A = x (0..159) -> A = quickPos
+    926  f44b							;   quickPos = (HMOVE fine nibble << 4) | delay count (low nibble).
+    927  f44b							;   Fast divide-by-15 + tables, from examples/hmove74.asm. Uses Y, tempOne.
+    928  f44b							;-------------------------------------------------------------
+    929  f44b				   CalcQuickPos
+    930  f44b		       85 85		      sta	tempOne
+    931  f44d		       4a		      lsr
+    932  f44e		       69 04		      adc	#4
+    933  f450		       4a		      lsr
+    934  f451		       4a		      lsr
+    935  f452		       4a		      lsr
+    936  f453		       65 85		      adc	tempOne
+    937  f455		       6a		      ror
+    938  f456		       4a		      lsr
+    939  f457		       4a		      lsr
+    940  f458		       4a		      lsr
+    941  f459		       a8		      tay		; Y = x / 15
+    942  f45a		       b9 6f f4 	      lda	MultTab,y
+    943  f45d		       38		      sec
+    944  f45e		       e5 85		      sbc	tempOne
+    945  f460		       0a		      asl
+    946  f461		       0a		      asl
+    947  f462		       0a		      asl
+    948  f463		       0a		      asl
+    949  f464		       18		      clc
+    950  f465		       79 7a f4 	      adc	DelayTab,y
+    951  f468		       60		      rts
+    952  f469
+    953  f469							;-------------------------------------------------------------
+    954  f469							; Tables
+    955  f469							;-------------------------------------------------------------
+    956  f469							; ENAM0 enable byte per floor (bit1 = enable). Floor 5 = no gap.
+    957  f469				   GapOnTable
+    958  f469		       02 02 02 02*	      .byte.b	2,2,2,2,2,0
+    959  f46f
+    960  f46f							; quickPos divide tables (from examples/hmove74.asm)
+    961  f46f				   MultTab
+    962  f46f		       e7 f6 05 14*	      .byte.b	-25,-10,5,20,35,50,65,80,95,110,-21
+    963  f47a				   DelayTab
+    964  f47a		       01 02 03 04*	      .byte.b	1,2,3,4,5,6,7,8,9,10,0
+    965  f485
+    966  f485							; Player run-cycle frames (bottom row first; index 7 = top row). Both frames
+    967  f485							; live in the same page so the kernel selects one by low byte via PlayerFrameLo.
+    968  f485							; PlayerSprite1 starts as a copy of frame 0 -- edit it to make the second pose.
+    969  f485				   PlayerSprite0
+    970  f485		       00		      .byte.b	%00000000	; offset 0 (bottom)
+    971  f486		       00		      .byte.b	%00000000	;
+    972  f487		       cc		      .byte.b	%11001100	; ll  ll
+    973  f488		       fc		      .byte.b	%11111100	; llllll
+    974  f489		       d4		      .byte.b	%11010100	; ll l l
+    975  f48a		       d4		      .byte.b	%11010100	; ll l l
+    976  f48b		       fc		      .byte.b	%11111100	; llllll
+    977  f48c		       00		      .byte.b	%00000000	; (offset 7, top)
+    978  f48d				   PlayerSprite1
+    979  f48d		       00		      .byte.b	%00000000	; offset 0 (bottom)
+    980  f48e		       00		      .byte.b	%00000000
+    981  f48f		       48		      .byte.b	%01001000	;  l  l
+    982  f490		       48		      .byte.b	%01001000	;  l  l
+    983  f491		       fc		      .byte.b	%11111100	; llllll
+    984  f492		       d4		      .byte.b	%11010100	; ll l l
+    985  f493		       d4		      .byte.b	%11010100	; ll l l
+    986  f494		       fc		      .byte.b	%11111100	; llllll  (offset 7, top)
+    987  f495							; low-byte lookup for the two frames (indexed by animFrame)
+    988  f495				   PlayerFrameLo
+    989  f495		       85 8d		      .byte.b	<PlayerSprite0, <PlayerSprite1
+    990  f497
+    991  f497							; Entity sprite rows (bottom row first), defined as symbols so the base sprites
+    992  f497							; AND the left/right slide shift tables (all in page f5, below) generate from the
+    993  f497							; SAME source and never drift. Edit these rows to change the cone / skull art.
+    994  f497		       00 00	   CONE0      =	%00000000
+    995  f497		       00 00	   CONE1      =	%00000000
+    996  f497		       00 ff	   CONE2      =	%11111111	; wide base
+    997  f497		       00 42	   CONE3      =	%01000010
+    998  f497		       00 7e	   CONE4      =	%01111110
+    999  f497		       00 24	   CONE5      =	%00100100
+   1000  f497		       00 18	   CONE6      =	%00011000
+   1001  f497		       00 18	   CONE7      =	%00011000	; point (top)
+   1002  f497		       00 00	   SKULL0     =	%00000000
+   1003  f497		       00 00	   SKULL1     =	%00000000
+   1004  f497		       00 3c	   SKULL2     =	%00111100
+   1005  f497		       00 7e	   SKULL3     =	%01111110
+   1006  f497		       00 e7	   SKULL4     =	%11100111	; eyes
+   1007  f497		       00 bd	   SKULL5     =	%10111101
+   1008  f497		       00 7e	   SKULL6     =	%01111110
+   1009  f497		       00 3c	   SKULL7     =	%00111100	; top
+   1010  f497
+   1011  f497					      MAC	cone_rows
+   1012  f497					      .byte	(CONE0<<{1})&$FF,(CONE1<<{1})&$FF,(CONE2<<{1})&$FF,(CONE3<<{1})&$FF
+   1013  f497					      .byte	(CONE4<<{1})&$FF,(CONE5<<{1})&$FF,(CONE6<<{1})&$FF,(CONE7<<{1})&$FF
+   1014  f497					      ENDM		; {1} = left-shift amount (asl); 0 = base art
+   1015  f497					      MAC	skull_rows
+   1016  f497					      .byte	(SKULL0<<{1})&$FF,(SKULL1<<{1})&$FF,(SKULL2<<{1})&$FF,(SKULL3<<{1})&$FF
+   1017  f497					      .byte	(SKULL4<<{1})&$FF,(SKULL5<<{1})&$FF,(SKULL6<<{1})&$FF,(SKULL7<<{1})&$FF
+   1018  f497					      ENDM
+   1019  f497							; (ZeroSprite / ConeSprite / SkullSprite base art + the slide tables all live
+   1020  f497							;  together in page f5 -- see the block after JumpTabM0.)
+   1021  f497
+   1022  f497							; Entity lookups indexed by entType (0 none, 1 cone, 2 skull)
+   1023  f497				   EntColorTable
+   1024  f497		       00 2c 46 	      .byte.b	$00, COL_CONE, COL_SKULL
+   1025  f49a				   EntSprLo
+   1026  f49a		       30 38 40 	      .byte.b	<ZeroSprite, <ConeSprite, <SkullSprite
+   1027  f49d							; base low byte of each type's slide-shift table (indexed by entType); the
+   1028  f49d							; sliding sprite = SlideBaseLo[type] + (entSlide-1)*8. Type 0 never slides.
+   1029  f49d				   SlideBaseLo
+   1030  f49d		       00 48 80 	      .byte.b	$00, <ConeSlide, <SkullSlide
+   1031  f4a0							; Respawn type roll, indexed by (rng & 3): 50/50 cone / skull
+   1032  f4a0				   EntTypeRoll
+   1033  f4a0		       01 01 02 02	      .byte.b	ENT_CONE, ENT_CONE, ENT_SKULL, ENT_SKULL
+   1034  f4a4
+   1035  f4a4							;-------------------------------------------------------------
+   1036  f4a4							; Missile-0 cycle-74 strobe table (must stay within one page).
+   1037  f4a4							;   Each entry strobes RESM0; the $1C (NOP abs) swallows the next
+   1038  f4a4							;   entry's `sta RESM0`, so only the jumped-to strobe executes, then
+   1039  f4a4							;   execution falls through to `sta HMOVE` at cycle ~74.
+   1040  f4a4							;-------------------------------------------------------------
+   1041  f500					      org	$f500
+   1042  f500				   PosTblM0
+   1043  f500				   pM0_3
+   1044  f500		       85 12		      sta	RESM0
+   1045  f502		       1c		      .byte.b	$1C
+   1046  f503				   pM0_15
+   1047  f503		       85 12		      sta	RESM0
+   1048  f505		       1c		      .byte.b	$1C
+   1049  f506				   pM0_30
+   1050  f506		       85 12		      sta	RESM0
+   1051  f508		       1c		      .byte.b	$1C
+   1052  f509				   pM0_45
+   1053  f509		       85 12		      sta	RESM0
+   1054  f50b		       1c		      .byte.b	$1C
+   1055  f50c				   pM0_60
+   1056  f50c		       85 12		      sta	RESM0
+   1057  f50e		       1c		      .byte.b	$1C
+   1058  f50f				   pM0_75
+   1059  f50f		       85 12		      sta	RESM0
+   1060  f511		       1c		      .byte.b	$1C
+   1061  f512				   pM0_90
+   1062  f512		       85 12		      sta	RESM0
+   1063  f514		       1c		      .byte.b	$1C
+   1064  f515				   pM0_105
+   1065  f515		       85 12		      sta	RESM0
+   1066  f517		       1c		      .byte.b	$1C
+   1067  f518				   pM0_120
+   1068  f518		       85 12		      sta	RESM0
+   1069  f51a		       1c		      .byte.b	$1C
+   1070  f51b				   pM0_135
+   1071  f51b		       85 12		      sta	RESM0
+   1072  f51d		       1c		      .byte.b	$1C
+   1073  f51e				   pM0_150
+   1074  f51e		       85 12		      sta	RESM0
+   1075  f520		       85 2a		      sta	HMOVE
+   1076  f522		       85 02		      sta	WSYNC	; re-align: the positioning line ends here so the
+   1077  f524		       60		      rts		; band keeps an exact, identical scanline budget
+   1078  f525
+   1079  f525				   JumpTabM0
+   1080  f525		       00 03 06 09*	      .byte.b	<pM0_3, <pM0_15, <pM0_30, <pM0_45, <pM0_60, <pM0_75
+   1081  f52b		       12 15 18 1b*	      .byte.b	<pM0_90, <pM0_105, <pM0_120, <pM0_135, <pM0_150
+   1082  f530
+   1083  f530							;-------------------------------------------------------------
+   1084  f530							; ---- Entity sprites + edge-slide shift tables (all page f5) ----
+   1085  f530							; Base art (shift 0) and the asl 1..7 slide frames live together so a single
+   1086  f530							; high byte (>ZeroSprite) covers every entity draw. Generated from the CONEn/
+   1087  f530							; SKULLn row symbols so the slide frames track the art.
+   1088  f530				   ZeroSprite
+   1089  f530		       00 00 00 00*	      .byte.b	0,0,0,0,0,0,0,0
+   1090  f538				   ConeSprite
       0  f538					      CONE_ROWS	0
       1  f538		       00 00 ff 42	      .byte.b	(CONE0<<0)&$FF,(CONE1<<0)&$FF,(CONE2<<0)&$FF,(CONE3<<0)&$FF
       2  f53c		       7e 24 18 18	      .byte.b	(CONE4<<0)&$FF,(CONE5<<0)&$FF,(CONE6<<0)&$FF,(CONE7<<0)&$FF
-   1067  f540				   SkullSprite
+   1092  f540				   SkullSprite
       0  f540					      SKULL_ROWS	0
       1  f540		       00 00 3c 7e	      .byte.b	(SKULL0<<0)&$FF,(SKULL1<<0)&$FF,(SKULL2<<0)&$FF,(SKULL3<<0)&$FF
       2  f544		       e7 bd 7e 3c	      .byte.b	(SKULL4<<0)&$FF,(SKULL5<<0)&$FF,(SKULL6<<0)&$FF,(SKULL7<<0)&$FF
-   1069  f548							; Slide frames: each entity's bitmap pre-shifted left (asl) 1..7; the frame for
-   1070  f548							; shift N lives at <table> + (N-1)*8. Used for BOTH edges: left slide-out draws
-   1071  f548							; them directly; right slide-in draws them with REFP1=1 (the sprites are
-   1072  f548							; left/right symmetric, so the reflect is invisible).
-   1073  f548				   ConeSlide
+   1094  f548							; Slide frames: each entity's bitmap pre-shifted left (asl) 1..7; the frame for
+   1095  f548							; shift N lives at <table> + (N-1)*8. Used for BOTH edges: left slide-out draws
+   1096  f548							; them directly; right slide-in draws them with REFP1=1 (the sprites are
+   1097  f548							; left/right symmetric, so the reflect is invisible).
+   1098  f548				   ConeSlide
       0  f548					      CONE_ROWS	1
       1  f548		       00 00 fe 84	      .byte.b	(CONE0<<1)&$FF,(CONE1<<1)&$FF,(CONE2<<1)&$FF,(CONE3<<1)&$FF
       2  f54c		       fc 48 30 30	      .byte.b	(CONE4<<1)&$FF,(CONE5<<1)&$FF,(CONE6<<1)&$FF,(CONE7<<1)&$FF
@@ -1691,7 +1716,7 @@
       0  f578					      CONE_ROWS	7
       1  f578		       00 00 80 00	      .byte.b	(CONE0<<7)&$FF,(CONE1<<7)&$FF,(CONE2<<7)&$FF,(CONE3<<7)&$FF
       2  f57c		       00 00 00 00	      .byte.b	(CONE4<<7)&$FF,(CONE5<<7)&$FF,(CONE6<<7)&$FF,(CONE7<<7)&$FF
-   1081  f580				   SkullSlide
+   1106  f580				   SkullSlide
       0  f580					      SKULL_ROWS	1
       1  f580		       00 00 78 fc	      .byte.b	(SKULL0<<1)&$FF,(SKULL1<<1)&$FF,(SKULL2<<1)&$FF,(SKULL3<<1)&$FF
       2  f584		       ce 7a fc 78	      .byte.b	(SKULL4<<1)&$FF,(SKULL5<<1)&$FF,(SKULL6<<1)&$FF,(SKULL7<<1)&$FF
@@ -1713,96 +1738,96 @@
       0  f5b0					      SKULL_ROWS	7
       1  f5b0		       00 00 00 00	      .byte.b	(SKULL0<<7)&$FF,(SKULL1<<7)&$FF,(SKULL2<<7)&$FF,(SKULL3<<7)&$FF
       2  f5b4		       80 80 00 00	      .byte.b	(SKULL4<<7)&$FF,(SKULL5<<7)&$FF,(SKULL6<<7)&$FF,(SKULL7<<7)&$FF
-   1089  f5b8
-   1090  f5b8							;-------------------------------------------------------------
-   1091  f5b8							; Player-1 (GRP1) cycle-74 strobe table. Placed at $f600 so its
-   1092  f5b8							; entries share the SAME low bytes as PosTblM0 ($f500) -> JumpTabM0
-   1093  f5b8							; works for both; Pos74P1 just uses the $f6 high byte.
-   1094  f5b8							;-------------------------------------------------------------
-   1095  f600					      org	$f600
-   1096  f600				   PosTblP1
-   1097  f600				   pP1_3
-   1098  f600		       85 11		      sta	RESP1
-   1099  f602		       1c		      .byte.b	$1C
-   1100  f603				   pP1_15
-   1101  f603		       85 11		      sta	RESP1
-   1102  f605		       1c		      .byte.b	$1C
-   1103  f606				   pP1_30
-   1104  f606		       85 11		      sta	RESP1
-   1105  f608		       1c		      .byte.b	$1C
-   1106  f609				   pP1_45
-   1107  f609		       85 11		      sta	RESP1
-   1108  f60b		       1c		      .byte.b	$1C
-   1109  f60c				   pP1_60
-   1110  f60c		       85 11		      sta	RESP1
-   1111  f60e		       1c		      .byte.b	$1C
-   1112  f60f				   pP1_75
-   1113  f60f		       85 11		      sta	RESP1
-   1114  f611		       1c		      .byte.b	$1C
-   1115  f612				   pP1_90
-   1116  f612		       85 11		      sta	RESP1
-   1117  f614		       1c		      .byte.b	$1C
-   1118  f615				   pP1_105
-   1119  f615		       85 11		      sta	RESP1
-   1120  f617		       1c		      .byte.b	$1C
-   1121  f618				   pP1_120
-   1122  f618		       85 11		      sta	RESP1
-   1123  f61a		       1c		      .byte.b	$1C
-   1124  f61b				   pP1_135
-   1125  f61b		       85 11		      sta	RESP1
-   1126  f61d		       1c		      .byte.b	$1C
-   1127  f61e				   pP1_150
-   1128  f61e		       85 11		      sta	RESP1
-   1129  f620		       85 2a		      sta	HMOVE
-   1130  f622		       85 02		      sta	WSYNC
-   1131  f624		       60		      rts
-   1132  f625
-   1133  f625							;-------------------------------------------------------------
-   1134  f625							; FontTable - 8x8 bitmaps for digits 0-9 (page-aligned so each
-   1135  f625							; digit's 8 bytes never cross a page). From examples/6-digit-score.asm.
-   1136  f625							;-------------------------------------------------------------
-   1137  f700		       00 00 00 00*	      align	$100
-   1138  f700				   FontTable
-   1139  f700		       00 1c 32 63*	      .byte.b	$00,$1c,$32,$63,$63,$63,$26,$1c
-   1140  f708		       00 3f 0c 0c*	      .byte.b	$00,$3f,$0c,$0c,$0c,$0c,$1c,$0c
-   1141  f710		       00 7f 70 3c*	      .byte.b	$00,$7f,$70,$3c,$1e,$07,$63,$3e
-   1142  f718		       00 3e 63 03*	      .byte.b	$00,$3e,$63,$03,$1e,$0c,$06,$3f
-   1143  f720		       00 06 06 7f*	      .byte.b	$00,$06,$06,$7f,$66,$36,$1e,$0e
-   1144  f728		       00 3e 63 03*	      .byte.b	$00,$3e,$63,$03,$03,$7e,$60,$7e
-   1145  f730		       00 3e 63 63*	      .byte.b	$00,$3e,$63,$63,$7e,$60,$30,$1e
-   1146  f738		       00 18 18 18*	      .byte.b	$00,$18,$18,$18,$0c,$06,$63,$7f
-   1147  f740		       00 3e 43 4f*	      .byte.b	$00,$3e,$43,$4f,$3c,$72,$62,$3c
-   1148  f748		       00 3c 06 03*	      .byte.b	$00,$3c,$06,$03,$3f,$63,$63,$3e
-   1149  f750				   BlankGlyph
-   1150  f750		       00 00 00 00*	      .byte.b	$00,$00,$00,$00,$00,$00,$00,$00
-   1151  f758
-   1152  f758							; "GAMEOVER" packed across 6 glyph slots (8 letters in 48px). User-supplied,
-   1153  f758							; with each glyph's 8 bytes reversed to the kernel's bottom-row-first order.
-   1154  f758				   GameOverGlyphs
-   1155  f758		       00 79 cd cd*	      .byte.b	$00,$79,$cd,$cd,$dd,$c1,$c1,$78
-   1156  f760		       00 b6 b6 f6*	      .byte.b	$00,$b6,$b6,$f6,$b7,$b7,$b6,$e4
-   1157  f768		       00 37 36 b6*	      .byte.b	$00,$37,$36,$b6,$f7,$76,$36,$17
-   1158  f770		       00 9c 36 36*	      .byte.b	$00,$9c,$36,$36,$b6,$36,$36,$9c
-   1159  f778		       00 23 73 db*	      .byte.b	$00,$23,$73,$db,$db,$db,$db,$db
-   1160  f780		       00 db 1b 1e*	      .byte.b	$00,$db,$1b,$1e,$db,$1b,$1b,$de
-   1161  f788
-   1162  f788							; "H" and "I" for the HInnnn high-score frame (digit-font orientation:
-   1163  f788							; byte order is bottom row first, top row last; 7px wide).
-   1164  f788				   LetterH
-   1165  f788		       00 63 63 63*	      .byte.b	$00,$63,$63,$63,$7f,$63,$63,$63
-   1166  f790				   LetterI
-   1167  f790		       00 3c 18 18*	      .byte.b	$00,$3c,$18,$18,$18,$18,$18,$3c
-   1168  f798
-   1169  f798							;-------------------------------------------------------------
-   1170  f798							; DrawDigits - render the 48x8 score from Digit0..Digit5 pointers.
-   1171  f798							; Page-aligned so BigLoop's branch stays in-page (exact 76-cycle rows).
-   1172  f798							; After examples/6-digit-score.asm (Temp -> tempOne, LoopCount -> loopCnt).
-   1173  f798							;-------------------------------------------------------------
-   1174  f800		       00 00 00 00*	      align	$100
-   1175  f800				   DrawDigits
-   1176  f800		       a9 07		      lda	#7
-   1177  f802		       85 eb		      sta	loopCnt
-   1178  f804		       85 02		      sta	WSYNC
+   1114  f5b8
+   1115  f5b8							;-------------------------------------------------------------
+   1116  f5b8							; Player-1 (GRP1) cycle-74 strobe table. Placed at $f600 so its
+   1117  f5b8							; entries share the SAME low bytes as PosTblM0 ($f500) -> JumpTabM0
+   1118  f5b8							; works for both; Pos74P1 just uses the $f6 high byte.
+   1119  f5b8							;-------------------------------------------------------------
+   1120  f600					      org	$f600
+   1121  f600				   PosTblP1
+   1122  f600				   pP1_3
+   1123  f600		       85 11		      sta	RESP1
+   1124  f602		       1c		      .byte.b	$1C
+   1125  f603				   pP1_15
+   1126  f603		       85 11		      sta	RESP1
+   1127  f605		       1c		      .byte.b	$1C
+   1128  f606				   pP1_30
+   1129  f606		       85 11		      sta	RESP1
+   1130  f608		       1c		      .byte.b	$1C
+   1131  f609				   pP1_45
+   1132  f609		       85 11		      sta	RESP1
+   1133  f60b		       1c		      .byte.b	$1C
+   1134  f60c				   pP1_60
+   1135  f60c		       85 11		      sta	RESP1
+   1136  f60e		       1c		      .byte.b	$1C
+   1137  f60f				   pP1_75
+   1138  f60f		       85 11		      sta	RESP1
+   1139  f611		       1c		      .byte.b	$1C
+   1140  f612				   pP1_90
+   1141  f612		       85 11		      sta	RESP1
+   1142  f614		       1c		      .byte.b	$1C
+   1143  f615				   pP1_105
+   1144  f615		       85 11		      sta	RESP1
+   1145  f617		       1c		      .byte.b	$1C
+   1146  f618				   pP1_120
+   1147  f618		       85 11		      sta	RESP1
+   1148  f61a		       1c		      .byte.b	$1C
+   1149  f61b				   pP1_135
+   1150  f61b		       85 11		      sta	RESP1
+   1151  f61d		       1c		      .byte.b	$1C
+   1152  f61e				   pP1_150
+   1153  f61e		       85 11		      sta	RESP1
+   1154  f620		       85 2a		      sta	HMOVE
+   1155  f622		       85 02		      sta	WSYNC
+   1156  f624		       60		      rts
+   1157  f625
+   1158  f625							;-------------------------------------------------------------
+   1159  f625							; FontTable - 8x8 bitmaps for digits 0-9 (page-aligned so each
+   1160  f625							; digit's 8 bytes never cross a page). From examples/6-digit-score.asm.
+   1161  f625							;-------------------------------------------------------------
+   1162  f700		       00 00 00 00*	      align	$100
+   1163  f700				   FontTable
+   1164  f700		       00 1c 32 63*	      .byte.b	$00,$1c,$32,$63,$63,$63,$26,$1c
+   1165  f708		       00 3f 0c 0c*	      .byte.b	$00,$3f,$0c,$0c,$0c,$0c,$1c,$0c
+   1166  f710		       00 7f 70 3c*	      .byte.b	$00,$7f,$70,$3c,$1e,$07,$63,$3e
+   1167  f718		       00 3e 63 03*	      .byte.b	$00,$3e,$63,$03,$1e,$0c,$06,$3f
+   1168  f720		       00 06 06 7f*	      .byte.b	$00,$06,$06,$7f,$66,$36,$1e,$0e
+   1169  f728		       00 3e 63 03*	      .byte.b	$00,$3e,$63,$03,$03,$7e,$60,$7e
+   1170  f730		       00 3e 63 63*	      .byte.b	$00,$3e,$63,$63,$7e,$60,$30,$1e
+   1171  f738		       00 18 18 18*	      .byte.b	$00,$18,$18,$18,$0c,$06,$63,$7f
+   1172  f740		       00 3e 43 4f*	      .byte.b	$00,$3e,$43,$4f,$3c,$72,$62,$3c
+   1173  f748		       00 3c 06 03*	      .byte.b	$00,$3c,$06,$03,$3f,$63,$63,$3e
+   1174  f750				   BlankGlyph
+   1175  f750		       00 00 00 00*	      .byte.b	$00,$00,$00,$00,$00,$00,$00,$00
+   1176  f758
+   1177  f758							; "GAMEOVER" packed across 6 glyph slots (8 letters in 48px). User-supplied,
+   1178  f758							; with each glyph's 8 bytes reversed to the kernel's bottom-row-first order.
+   1179  f758				   GameOverGlyphs
+   1180  f758		       00 79 cd cd*	      .byte.b	$00,$79,$cd,$cd,$dd,$c1,$c1,$78
+   1181  f760		       00 b6 b6 f6*	      .byte.b	$00,$b6,$b6,$f6,$b7,$b7,$b6,$e4
+   1182  f768		       00 37 36 b6*	      .byte.b	$00,$37,$36,$b6,$f7,$76,$36,$17
+   1183  f770		       00 9c 36 36*	      .byte.b	$00,$9c,$36,$36,$b6,$36,$36,$9c
+   1184  f778		       00 23 73 db*	      .byte.b	$00,$23,$73,$db,$db,$db,$db,$db
+   1185  f780		       00 db 1b 1e*	      .byte.b	$00,$db,$1b,$1e,$db,$1b,$1b,$de
+   1186  f788
+   1187  f788							; "H" and "I" for the HInnnn high-score frame (digit-font orientation:
+   1188  f788							; byte order is bottom row first, top row last; 7px wide).
+   1189  f788				   LetterH
+   1190  f788		       00 63 63 63*	      .byte.b	$00,$63,$63,$63,$7f,$63,$63,$63
+   1191  f790				   LetterI
+   1192  f790		       00 3c 18 18*	      .byte.b	$00,$3c,$18,$18,$18,$18,$18,$3c
+   1193  f798
+   1194  f798							;-------------------------------------------------------------
+   1195  f798							; DrawDigits - render the 48x8 score from Digit0..Digit5 pointers.
+   1196  f798							; Page-aligned so BigLoop's branch stays in-page (exact 76-cycle rows).
+   1197  f798							; After examples/6-digit-score.asm (Temp -> tempOne, LoopCount -> loopCnt).
+   1198  f798							;-------------------------------------------------------------
+   1199  f800		       00 00 00 00*	      align	$100
+   1200  f800				   DrawDigits
+   1201  f800		       a9 07		      lda	#7
+   1202  f802		       85 eb		      sta	loopCnt
+   1203  f804		       85 02		      sta	WSYNC
       0  f806					      SLEEP	60
       1  f806				   .CYCLES    SET	60
       2  f806
@@ -1881,215 +1906,215 @@
      17  f822					      REPEND
      18  f823		       ea		      nop
      19  f824					      REPEND
-   1180  f824				   .bigLoop
-   1181  f824		       a4 eb		      ldy	loopCnt	; counts 7..0
-   1182  f826		       b1 df		      lda	(Digit0),y
-   1183  f828		       85 1b		      sta	GRP0
-   1184  f82a		       b1 e1		      lda	(Digit0+2),y
-   1185  f82c		       85 1c		      sta	GRP1
-   1186  f82e		       c5 00		      cmp	$00
-   1187  f830		       c5 00		      cmp	$00
-   1188  f832		       b1 e3		      lda	(Digit0+4),y
-   1189  f834		       85 1b		      sta	GRP0
-   1190  f836		       b1 e9		      lda	(Digit0+10),y
-   1191  f838		       85 85		      sta	tempOne
-   1192  f83a		       b1 e7		      lda	(Digit0+8),y
-   1193  f83c		       aa		      tax
-   1194  f83d		       b1 e5		      lda	(Digit0+6),y
-   1195  f83f		       a4 85		      ldy	tempOne
-   1196  f841		       85 1c		      sta	GRP1
-   1197  f843		       86 1b		      stx	GRP0
-   1198  f845		       84 1c		      sty	GRP1
-   1199  f847		       85 1b		      sta	GRP0
-   1200  f849		       c6 eb		      dec	loopCnt
-   1201  f84b		       10 d7		      bpl	.bigLoop
-   1202  f84d		       a9 00		      lda	#0
-   1203  f84f		       85 1b		      sta	GRP0
-   1204  f851		       85 1c		      sta	GRP1
-   1205  f853		       85 1b		      sta	GRP0
-   1206  f855		       85 1c		      sta	GRP1
-   1207  f857		       85 02		      sta	WSYNC	; align: DrawDigits is exactly 9 scanlines
-   1208  f859		       60		      rts
-   1209  f85a
-   1210  f85a							;-------------------------------------------------------------
-   1211  f85a							; GetDigitPtrs - build the 6 font pointers (Digit0..Digit5) from the
-   1212  f85a							;   3-byte BCD score. Each nibble * 8 = offset into FontTable.
-   1213  f85a							;   (After examples/6-digit-score.asm.) Lives here in the trailing gap to
-   1214  f85a							;   keep the cramped $f000-$f500 code region under the PosTblM0 org.
-   1215  f85a							;-------------------------------------------------------------
-   1216  f85a				   GetDigitPtrs
-   1217  f85a		       a5 c4		      lda	gameState
-   1218  f85c		       d0 26		      bne	.goText
-   1219  f85e							; --- playing: score "__nnnn" (blank leftmost two, low 4 BCD digits) ---
-   1220  f85e		       a9 50		      lda	#<BlankGlyph
-   1221  f860		       85 df		      sta	Digit0+0
-   1222  f862		       85 e1		      sta	Digit0+2
-   1223  f864		       a2 04		      ldx	#4
-   1224  f866		       a0 01		      ldy	#1
-   1225  f868				   .gdpLoop
-   1226  f868		       b9 c5 00 	      lda	scoreBCD,y
-   1227  f86b		       29 f0		      and	#$f0	; high nibble * 16
-   1228  f86d		       4a		      lsr		; -> * 8
-   1229  f86e		       95 df		      sta	Digit0,x
-   1230  f870		       e8		      inx
-   1231  f871		       e8		      inx
-   1232  f872		       b9 c5 00 	      lda	scoreBCD,y
-   1233  f875		       29 0f		      and	#$0f	; low nibble
-   1234  f877		       0a		      asl
-   1235  f878		       0a		      asl
-   1236  f879		       0a		      asl		; * 8
-   1237  f87a		       95 df		      sta	Digit0,x
-   1238  f87c		       e8		      inx
-   1239  f87d		       e8		      inx
-   1240  f87e		       88		      dey
-   1241  f87f		       10 e7		      bpl	.gdpLoop
-   1242  f881		       4c cb f8 	      jmp	.setHi
-   1243  f884				   .goText
-   1244  f884							; --- game over: alternate "GAMEOVER" and "HInnnn" every 120 frames ---
-   1245  f884		       a5 ca		      lda	goCnt
-   1246  f886		       c9 78		      cmp	#120
-   1247  f888		       b0 1c		      bcs	.goHi	; goCnt 120-239 -> HInnnn
-   1248  f88a							; "GAMEOVER" packed across the 6 glyph slots
-   1249  f88a		       a9 58		      lda	#<GameOverGlyphs
-   1250  f88c		       85 df		      sta	Digit0+0
-   1251  f88e		       18		      clc
-   1252  f88f		       69 08		      adc	#8
-   1253  f891		       85 e1		      sta	Digit0+2
-   1254  f893		       69 08		      adc	#8
-   1255  f895		       85 e3		      sta	Digit0+4
-   1256  f897		       69 08		      adc	#8
-   1257  f899		       85 e5		      sta	Digit0+6
-   1258  f89b		       69 08		      adc	#8
-   1259  f89d		       85 e7		      sta	Digit0+8
-   1260  f89f		       69 08		      adc	#8
-   1261  f8a1		       85 e9		      sta	Digit0+10
-   1262  f8a3		       4c cb f8 	      jmp	.setHi
-   1263  f8a6				   .goHi
-   1264  f8a6							; "HI" + the 4-digit high score
-   1265  f8a6		       a9 88		      lda	#<LetterH
-   1266  f8a8		       85 df		      sta	Digit0+0
-   1267  f8aa		       a9 90		      lda	#<LetterI
-   1268  f8ac		       85 e1		      sta	Digit0+2
-   1269  f8ae		       a2 04		      ldx	#4
-   1270  f8b0		       a0 01		      ldy	#1
-   1271  f8b2				   .goHiLoop
-   1272  f8b2		       b9 c8 00 	      lda	hiScore,y
-   1273  f8b5		       29 f0		      and	#$f0
-   1274  f8b7		       4a		      lsr
-   1275  f8b8		       95 df		      sta	Digit0,x
-   1276  f8ba		       e8		      inx
-   1277  f8bb		       e8		      inx
-   1278  f8bc		       b9 c8 00 	      lda	hiScore,y
-   1279  f8bf		       29 0f		      and	#$0f
-   1280  f8c1		       0a		      asl
-   1281  f8c2		       0a		      asl
-   1282  f8c3		       0a		      asl
-   1283  f8c4		       95 df		      sta	Digit0,x
-   1284  f8c6		       e8		      inx
-   1285  f8c7		       e8		      inx
-   1286  f8c8		       88		      dey
-   1287  f8c9		       10 e7		      bpl	.goHiLoop
-   1288  f8cb				   .setHi
-   1289  f8cb							; every glyph lives in the FontTable page, so all hi bytes are the same
-   1290  f8cb		       a9 f7		      lda	#>FontTable
-   1291  f8cd		       85 e0		      sta	Digit0+1
-   1292  f8cf		       85 e2		      sta	Digit0+3
-   1293  f8d1		       85 e4		      sta	Digit0+5
-   1294  f8d3		       85 e6		      sta	Digit0+7
-   1295  f8d5		       85 e8		      sta	Digit0+9
-   1296  f8d7		       85 ea		      sta	Digit0+11
-   1297  f8d9		       60		      rts
-   1298  f8da
-   1299  f8da							;-------------------------------------------------------------
-   1300  f8da							; UpdateSound - advance the one-shot SFX on channel 0 (called every frame in
-   1301  f8da							;   all game states, so the death sound keeps playing through the freeze).
-   1302  f8da							;   sfxTimer counts down; AUDC0/AUDF0/AUDV0 are derived from the id + timer.
-   1303  f8da							;-------------------------------------------------------------
-   1304  f8da				   UpdateSound
-   1305  f8da		       a5 c3		      lda	sfxTimer
-   1306  f8dc		       d0 01		      bne	.usPlay
-   1307  f8de		       60		      rts		; idle (already silent)
-   1308  f8df				   .usPlay
-   1309  f8df		       c6 c3		      dec	sfxTimer
-   1310  f8e1		       f0 11		      beq	.usSilence	; last frame elapsed -> turn the channel off
-   1311  f8e3		       a5 c2		      lda	sfxId
-   1312  f8e5		       c9 01		      cmp	#SFX_JUMP
-   1313  f8e7		       f0 10		      beq	.usJump
-   1314  f8e9		       c9 02		      cmp	#SFX_DROP
-   1315  f8eb		       f0 1c		      beq	.usDrop
-   1316  f8ed		       c9 03		      cmp	#SFX_CONE
-   1317  f8ef		       f0 28		      beq	.usCone
-   1318  f8f1		       4c 31 f9 	      jmp	.usDeath
-   1319  f8f4				   .usSilence
-   1320  f8f4		       a9 00		      lda	#0
-   1321  f8f6		       85 19		      sta	AUDV0
-   1322  f8f8		       60		      rts
-   1323  f8f9
-   1324  f8f9				   .usJump		; pure tone, pitch RISES (AUDF falls as timer falls)
-   1325  f8f9		       a9 04		      lda	#SFX_TONE
-   1326  f8fb		       85 15		      sta	AUDC0
-   1327  f8fd		       a5 c3		      lda	sfxTimer
-   1328  f8ff		       18		      clc
-   1329  f900		       69 03		      adc	#3
-   1330  f902		       85 17		      sta	AUDF0
-   1331  f904		       a9 0a		      lda	#SFX_VOL
-   1332  f906		       85 19		      sta	AUDV0
-   1333  f908		       60		      rts
-   1334  f909
-   1335  f909				   .usDrop		; pure tone, pitch FALLS (AUDF rises as timer falls)
-   1336  f909		       a9 04		      lda	#SFX_TONE
-   1337  f90b		       85 15		      sta	AUDC0
-   1338  f90d		       a9 0c		      lda	#DROP_DUR
-   1339  f90f		       38		      sec
-   1340  f910		       e5 c3		      sbc	sfxTimer
-   1341  f912		       85 17		      sta	AUDF0
-   1342  f914		       a9 0a		      lda	#SFX_VOL
-   1343  f916		       85 19		      sta	AUDV0
-   1344  f918		       60		      rts
-   1345  f919
-   1346  f919				   .usCone		; two-note coin: low note then a higher one
-   1347  f919		       a9 04		      lda	#SFX_TONE
-   1348  f91b		       85 15		      sta	AUDC0
-   1349  f91d		       a9 0a		      lda	#SFX_VOL
-   1350  f91f		       85 19		      sta	AUDV0
-   1351  f921		       a5 c3		      lda	sfxTimer
-   1352  f923		       c9 08		      cmp	#CONE_DUR/2
-   1353  f925		       b0 05		      bcs	.usConeLo	; first half -> low note
-   1354  f927		       a9 07		      lda	#7	; second half -> higher note (lower AUDF)
-   1355  f929		       85 17		      sta	AUDF0
-   1356  f92b		       60		      rts
-   1357  f92c				   .usConeLo
-   1358  f92c		       a9 0d		      lda	#13
-   1359  f92e		       85 17		      sta	AUDF0
-   1360  f930		       60		      rts
-   1361  f931
-   1362  f931				   .usDeath		; white noise: "tah" burst, gap, "tish" burst
-   1363  f931		       a9 08		      lda	#SFX_NOISE
-   1364  f933		       85 15		      sta	AUDC0
-   1365  f935		       a5 c3		      lda	sfxTimer
-   1366  f937		       c9 0d		      cmp	#13
-   1367  f939		       b0 09		      bcs	.usDeathTah	; 13.. -> first (lower) burst
-   1368  f93b		       c9 0a		      cmp	#10
-   1369  f93d		       90 0e		      bcc	.usDeathTish	; ..9	-> second (sharper) burst
-   1370  f93f		       a9 00		      lda	#0	; 10..12 -> short gap
-   1371  f941		       85 19		      sta	AUDV0
-   1372  f943		       60		      rts
-   1373  f944				   .usDeathTah
-   1374  f944		       a9 0f		      lda	#15
-   1375  f946		       85 17		      sta	AUDF0
-   1376  f948		       a9 0a		      lda	#SFX_VOL
-   1377  f94a		       85 19		      sta	AUDV0
-   1378  f94c		       60		      rts
-   1379  f94d				   .usDeathTish
-   1380  f94d		       a9 04		      lda	#4
-   1381  f94f		       85 17		      sta	AUDF0
-   1382  f951		       a9 0a		      lda	#SFX_VOL
-   1383  f953		       85 19		      sta	AUDV0
-   1384  f955		       60		      rts
-   1385  f956
-   1386  f956							;-------------------------------------------------------------
-   1387  f956							; Vectors
-   1388  f956							;-------------------------------------------------------------
-   1389  fffc					      org	$fffc
-   1390  fffc		       00 f0		      .word.w	Reset
-   1391  fffe		       00 f0		      .word.w	Reset
+   1205  f824				   .bigLoop
+   1206  f824		       a4 eb		      ldy	loopCnt	; counts 7..0
+   1207  f826		       b1 df		      lda	(Digit0),y
+   1208  f828		       85 1b		      sta	GRP0
+   1209  f82a		       b1 e1		      lda	(Digit0+2),y
+   1210  f82c		       85 1c		      sta	GRP1
+   1211  f82e		       c5 00		      cmp	$00
+   1212  f830		       c5 00		      cmp	$00
+   1213  f832		       b1 e3		      lda	(Digit0+4),y
+   1214  f834		       85 1b		      sta	GRP0
+   1215  f836		       b1 e9		      lda	(Digit0+10),y
+   1216  f838		       85 85		      sta	tempOne
+   1217  f83a		       b1 e7		      lda	(Digit0+8),y
+   1218  f83c		       aa		      tax
+   1219  f83d		       b1 e5		      lda	(Digit0+6),y
+   1220  f83f		       a4 85		      ldy	tempOne
+   1221  f841		       85 1c		      sta	GRP1
+   1222  f843		       86 1b		      stx	GRP0
+   1223  f845		       84 1c		      sty	GRP1
+   1224  f847		       85 1b		      sta	GRP0
+   1225  f849		       c6 eb		      dec	loopCnt
+   1226  f84b		       10 d7		      bpl	.bigLoop
+   1227  f84d		       a9 00		      lda	#0
+   1228  f84f		       85 1b		      sta	GRP0
+   1229  f851		       85 1c		      sta	GRP1
+   1230  f853		       85 1b		      sta	GRP0
+   1231  f855		       85 1c		      sta	GRP1
+   1232  f857		       85 02		      sta	WSYNC	; align: DrawDigits is exactly 9 scanlines
+   1233  f859		       60		      rts
+   1234  f85a
+   1235  f85a							;-------------------------------------------------------------
+   1236  f85a							; GetDigitPtrs - build the 6 font pointers (Digit0..Digit5) from the
+   1237  f85a							;   3-byte BCD score. Each nibble * 8 = offset into FontTable.
+   1238  f85a							;   (After examples/6-digit-score.asm.) Lives here in the trailing gap to
+   1239  f85a							;   keep the cramped $f000-$f500 code region under the PosTblM0 org.
+   1240  f85a							;-------------------------------------------------------------
+   1241  f85a				   GetDigitPtrs
+   1242  f85a		       a5 c4		      lda	gameState
+   1243  f85c		       d0 26		      bne	.goText
+   1244  f85e							; --- playing: score "__nnnn" (blank leftmost two, low 4 BCD digits) ---
+   1245  f85e		       a9 50		      lda	#<BlankGlyph
+   1246  f860		       85 df		      sta	Digit0+0
+   1247  f862		       85 e1		      sta	Digit0+2
+   1248  f864		       a2 04		      ldx	#4
+   1249  f866		       a0 01		      ldy	#1
+   1250  f868				   .gdpLoop
+   1251  f868		       b9 c5 00 	      lda	scoreBCD,y
+   1252  f86b		       29 f0		      and	#$f0	; high nibble * 16
+   1253  f86d		       4a		      lsr		; -> * 8
+   1254  f86e		       95 df		      sta	Digit0,x
+   1255  f870		       e8		      inx
+   1256  f871		       e8		      inx
+   1257  f872		       b9 c5 00 	      lda	scoreBCD,y
+   1258  f875		       29 0f		      and	#$0f	; low nibble
+   1259  f877		       0a		      asl
+   1260  f878		       0a		      asl
+   1261  f879		       0a		      asl		; * 8
+   1262  f87a		       95 df		      sta	Digit0,x
+   1263  f87c		       e8		      inx
+   1264  f87d		       e8		      inx
+   1265  f87e		       88		      dey
+   1266  f87f		       10 e7		      bpl	.gdpLoop
+   1267  f881		       4c cb f8 	      jmp	.setHi
+   1268  f884				   .goText
+   1269  f884							; --- game over: alternate "GAMEOVER" and "HInnnn" every 120 frames ---
+   1270  f884		       a5 ca		      lda	goCnt
+   1271  f886		       c9 78		      cmp	#120
+   1272  f888		       b0 1c		      bcs	.goHi	; goCnt 120-239 -> HInnnn
+   1273  f88a							; "GAMEOVER" packed across the 6 glyph slots
+   1274  f88a		       a9 58		      lda	#<GameOverGlyphs
+   1275  f88c		       85 df		      sta	Digit0+0
+   1276  f88e		       18		      clc
+   1277  f88f		       69 08		      adc	#8
+   1278  f891		       85 e1		      sta	Digit0+2
+   1279  f893		       69 08		      adc	#8
+   1280  f895		       85 e3		      sta	Digit0+4
+   1281  f897		       69 08		      adc	#8
+   1282  f899		       85 e5		      sta	Digit0+6
+   1283  f89b		       69 08		      adc	#8
+   1284  f89d		       85 e7		      sta	Digit0+8
+   1285  f89f		       69 08		      adc	#8
+   1286  f8a1		       85 e9		      sta	Digit0+10
+   1287  f8a3		       4c cb f8 	      jmp	.setHi
+   1288  f8a6				   .goHi
+   1289  f8a6							; "HI" + the 4-digit high score
+   1290  f8a6		       a9 88		      lda	#<LetterH
+   1291  f8a8		       85 df		      sta	Digit0+0
+   1292  f8aa		       a9 90		      lda	#<LetterI
+   1293  f8ac		       85 e1		      sta	Digit0+2
+   1294  f8ae		       a2 04		      ldx	#4
+   1295  f8b0		       a0 01		      ldy	#1
+   1296  f8b2				   .goHiLoop
+   1297  f8b2		       b9 c8 00 	      lda	hiScore,y
+   1298  f8b5		       29 f0		      and	#$f0
+   1299  f8b7		       4a		      lsr
+   1300  f8b8		       95 df		      sta	Digit0,x
+   1301  f8ba		       e8		      inx
+   1302  f8bb		       e8		      inx
+   1303  f8bc		       b9 c8 00 	      lda	hiScore,y
+   1304  f8bf		       29 0f		      and	#$0f
+   1305  f8c1		       0a		      asl
+   1306  f8c2		       0a		      asl
+   1307  f8c3		       0a		      asl
+   1308  f8c4		       95 df		      sta	Digit0,x
+   1309  f8c6		       e8		      inx
+   1310  f8c7		       e8		      inx
+   1311  f8c8		       88		      dey
+   1312  f8c9		       10 e7		      bpl	.goHiLoop
+   1313  f8cb				   .setHi
+   1314  f8cb							; every glyph lives in the FontTable page, so all hi bytes are the same
+   1315  f8cb		       a9 f7		      lda	#>FontTable
+   1316  f8cd		       85 e0		      sta	Digit0+1
+   1317  f8cf		       85 e2		      sta	Digit0+3
+   1318  f8d1		       85 e4		      sta	Digit0+5
+   1319  f8d3		       85 e6		      sta	Digit0+7
+   1320  f8d5		       85 e8		      sta	Digit0+9
+   1321  f8d7		       85 ea		      sta	Digit0+11
+   1322  f8d9		       60		      rts
+   1323  f8da
+   1324  f8da							;-------------------------------------------------------------
+   1325  f8da							; UpdateSound - advance the one-shot SFX on channel 0 (called every frame in
+   1326  f8da							;   all game states, so the death sound keeps playing through the freeze).
+   1327  f8da							;   sfxTimer counts down; AUDC0/AUDF0/AUDV0 are derived from the id + timer.
+   1328  f8da							;-------------------------------------------------------------
+   1329  f8da				   UpdateSound
+   1330  f8da		       a5 c3		      lda	sfxTimer
+   1331  f8dc		       d0 01		      bne	.usPlay
+   1332  f8de		       60		      rts		; idle (already silent)
+   1333  f8df				   .usPlay
+   1334  f8df		       c6 c3		      dec	sfxTimer
+   1335  f8e1		       f0 11		      beq	.usSilence	; last frame elapsed -> turn the channel off
+   1336  f8e3		       a5 c2		      lda	sfxId
+   1337  f8e5		       c9 01		      cmp	#SFX_JUMP
+   1338  f8e7		       f0 10		      beq	.usJump
+   1339  f8e9		       c9 02		      cmp	#SFX_DROP
+   1340  f8eb		       f0 1c		      beq	.usDrop
+   1341  f8ed		       c9 03		      cmp	#SFX_CONE
+   1342  f8ef		       f0 28		      beq	.usCone
+   1343  f8f1		       4c 31 f9 	      jmp	.usDeath
+   1344  f8f4				   .usSilence
+   1345  f8f4		       a9 00		      lda	#0
+   1346  f8f6		       85 19		      sta	AUDV0
+   1347  f8f8		       60		      rts
+   1348  f8f9
+   1349  f8f9				   .usJump		; pure tone, pitch RISES (AUDF falls as timer falls)
+   1350  f8f9		       a9 04		      lda	#SFX_TONE
+   1351  f8fb		       85 15		      sta	AUDC0
+   1352  f8fd		       a5 c3		      lda	sfxTimer
+   1353  f8ff		       18		      clc
+   1354  f900		       69 03		      adc	#3
+   1355  f902		       85 17		      sta	AUDF0
+   1356  f904		       a9 0a		      lda	#SFX_VOL
+   1357  f906		       85 19		      sta	AUDV0
+   1358  f908		       60		      rts
+   1359  f909
+   1360  f909				   .usDrop		; pure tone, pitch FALLS (AUDF rises as timer falls)
+   1361  f909		       a9 04		      lda	#SFX_TONE
+   1362  f90b		       85 15		      sta	AUDC0
+   1363  f90d		       a9 0c		      lda	#DROP_DUR
+   1364  f90f		       38		      sec
+   1365  f910		       e5 c3		      sbc	sfxTimer
+   1366  f912		       85 17		      sta	AUDF0
+   1367  f914		       a9 0a		      lda	#SFX_VOL
+   1368  f916		       85 19		      sta	AUDV0
+   1369  f918		       60		      rts
+   1370  f919
+   1371  f919				   .usCone		; two-note coin: low note then a higher one
+   1372  f919		       a9 04		      lda	#SFX_TONE
+   1373  f91b		       85 15		      sta	AUDC0
+   1374  f91d		       a9 0a		      lda	#SFX_VOL
+   1375  f91f		       85 19		      sta	AUDV0
+   1376  f921		       a5 c3		      lda	sfxTimer
+   1377  f923		       c9 08		      cmp	#CONE_DUR/2
+   1378  f925		       b0 05		      bcs	.usConeLo	; first half -> low note
+   1379  f927		       a9 07		      lda	#7	; second half -> higher note (lower AUDF)
+   1380  f929		       85 17		      sta	AUDF0
+   1381  f92b		       60		      rts
+   1382  f92c				   .usConeLo
+   1383  f92c		       a9 0d		      lda	#13
+   1384  f92e		       85 17		      sta	AUDF0
+   1385  f930		       60		      rts
+   1386  f931
+   1387  f931				   .usDeath		; white noise: "tah" burst, gap, "tish" burst
+   1388  f931		       a9 08		      lda	#SFX_NOISE
+   1389  f933		       85 15		      sta	AUDC0
+   1390  f935		       a5 c3		      lda	sfxTimer
+   1391  f937		       c9 0d		      cmp	#13
+   1392  f939		       b0 09		      bcs	.usDeathTah	; 13.. -> first (lower) burst
+   1393  f93b		       c9 0a		      cmp	#10
+   1394  f93d		       90 0e		      bcc	.usDeathTish	; ..9	-> second (sharper) burst
+   1395  f93f		       a9 00		      lda	#0	; 10..12 -> short gap
+   1396  f941		       85 19		      sta	AUDV0
+   1397  f943		       60		      rts
+   1398  f944				   .usDeathTah
+   1399  f944		       a9 0f		      lda	#15
+   1400  f946		       85 17		      sta	AUDF0
+   1401  f948		       a9 0a		      lda	#SFX_VOL
+   1402  f94a		       85 19		      sta	AUDV0
+   1403  f94c		       60		      rts
+   1404  f94d				   .usDeathTish
+   1405  f94d		       a9 04		      lda	#4
+   1406  f94f		       85 17		      sta	AUDF0
+   1407  f951		       a9 0a		      lda	#SFX_VOL
+   1408  f953		       85 19		      sta	AUDV0
+   1409  f955		       60		      rts
+   1410  f956
+   1411  f956							;-------------------------------------------------------------
+   1412  f956							; Vectors
+   1413  f956							;-------------------------------------------------------------
+   1414  fffc					      org	$fffc
+   1415  fffc		       00 f0		      .word.w	Reset
+   1416  fffe		       00 f0		      .word.w	Reset

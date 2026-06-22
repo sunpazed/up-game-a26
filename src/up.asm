@@ -52,7 +52,11 @@ BAND_GREEN   = 5
 BAND_GREY    = 6
 
 GAP_WIDTH    = 8        ; missile gap width (NUSIZ0 = $30)
-GAP_WRAP     = 159      ; respawn x at the right edge (cycle-74 reaches 0..159)
+GAP_WRAP     = 159      ; respawn x at the right edge (cycle-74 reaches 0..159).
+                        ; Gaps always re-enter here (slide in from the edge); the
+                        ; per-game variety comes from the randomised START layout.
+GAP_MIN_SEP  = 24       ; min x-distance between adjacent floors' start gaps, so
+                        ; holes never stack (= drop the player straight through)
 FALL_LO      = 14       ; gap-under-player window [FALL_LO..FALL_HI], centred on
 FALL_HI      = 18       ;   ~15 (measured: gap fully under the player at gapX~15)
 
@@ -222,19 +226,7 @@ NewGame
 	lda #SPEED_BASE
 	sta scrollSpeed         ; start each game at base speed (1 px/frame)
 
-	; Staggered initial gap positions (floor 5 has no gap)
-	lda #140
-	sta gapX+0
-	lda #110
-	sta gapX+1
-	lda #80
-	sta gapX+2
-	lda #50
-	sta gapX+3
-	lda #130
-	sta gapX+4
-	lda #0
-	sta gapX+5
+	; (gap layout is randomised below, after the PRNG is reseeded)
 
 	; Reseed the PRNG from the free-running frame counter (mixed with whatever
 	; state carried over), so each restart differs -- the human-variable delay
@@ -247,11 +239,45 @@ NewGame
 .seedOk
 	sta rng
 
+	; Randomise the gap (slot) layout per game. Each floor gets a fully random x;
+	; re-roll any that lands within GAP_MIN_SEP of the floor below so holes never
+	; stack (which would drop the player straight through) -- but the result is
+	; non-monotonic (no rigid diagonal). Candidates stay in 16..143 (away from the
+	; 0/159 wrap zone, so the same separation holds as they scroll). Floor 5: none.
+	ldx #4
+.ngGapFloor
+	ldy #8                  ; re-roll attempt cap (collisions are rare)
+.ngGapRoll
+	jsr Rng                 ; (Rng preserves X and Y)
+	and #$7F
+	clc
+	adc #16                 ; candidate 16..143
+	sta tempOne
+	cpx #4
+	beq .ngGapOk            ; first floor placed: nothing below to clash with
+	sec
+	sbc gapX+1,x            ; A = candidate - gap on the floor below
+	bcs .ngGapAbs
+	eor #$FF
+	clc
+	adc #1                  ; A = |difference|
+.ngGapAbs
+	cmp #GAP_MIN_SEP
+	bcs .ngGapOk            ; far enough from the floor below -> accept
+	dey
+	bne .ngGapRoll          ; too close -> re-roll (capped)
+.ngGapOk
+	lda tempOne
+	sta gapX,x
+	dex
+	bpl .ngGapFloor
+	lda #0
+	sta gapX+5
+
 	; Start with EMPTY platforms: every entity begins hidden and slides in from
-	; the right edge on a staggered delay (via the normal respawn path, which
-	; rolls a random type and clears gaps). This guarantees reaction time on any
-	; floor the player jumps to -- nothing is ever sitting in the jump path at
-	; the fixed player x. entX is set when each one spawns; entDrawLo = blank.
+	; the right edge (via the normal respawn path, which rolls a random type and
+	; clears gaps). Each gets a RANDOM first-spawn delay so they don't all enter
+	; evenly spaced (which read as a rigid diagonal). entX is set on spawn.
 	ldx #5
 .ngEnt
 	lda #0
@@ -260,7 +286,10 @@ NewGame
 	sta entRefp,x
 	lda #<ZeroSprite
 	sta entDrawLo,x
-	lda InitDelayTab,x      ; staggered first-spawn delay per floor
+	jsr Rng                 ; random first-spawn delay (Rng preserves X)
+	and #$3F
+	clc
+	adc #8                  ; 8..71 frames -> entities enter at varied times
 	sta entDelay,x
 	dex
 	bpl .ngEnt
@@ -703,7 +732,7 @@ UpdateWorld
 	lda gapX,x
 	sec
 	sbc scrollStep
-	bcc .gapWrap            ; underflowed past 0 -> wrap in from the right
+	bcc .gapWrap            ; underflowed past 0 -> wrap in from the right edge
 	bne .gapStore           ; still > 0
 .gapWrap                    ; A is 0 or the negative remainder; +GAP_WRAP re-enters
 	clc
@@ -1002,10 +1031,6 @@ SlideBaseLo
 ; Respawn type roll, indexed by (rng & 3): 50/50 cone / skull
 EntTypeRoll
 	.byte ENT_CONE, ENT_CONE, ENT_SKULL, ENT_SKULL
-; Staggered first-spawn delay per floor (frames) so the empty start fills in
-; gradually from the right rather than all at once.
-InitDelayTab
-	.byte 16, 28, 40, 52, 64, 76
 
 ;-------------------------------------------------------------
 ; Missile-0 cycle-74 strobe table (must stay within one page).
