@@ -161,6 +161,54 @@ Proposed layout (refine during implementation):
 - Verify: entities are spaced out (no instant re-pop); scroll visibly accelerates as score rises,
   still smooth (no judder), no roll.
 
+### M6(c) — Entities must spawn clear of gaps  ⬜ NEXT (designed, not yet coded)
+**Symptom:** cones/skulls sometimes appear floating over a hole.
+**Cause:** on each floor the gap (`gapX[f]`) and the entity (`entX[f]`) scroll at the **same
+speed** (both by `scrollStep`), so their relative x is fixed for a whole pass. If an entity
+respawns at the right edge (`entX = ENT_WRAP = 152`) while that floor's gap is also on the right
+(~145–159), they overlap and the entity floats over the hole the entire traversal. (The JS avoids
+this by only spawning where `nextHoleDist` is large.)
+**Fix (to implement):** in `UpdateWorld`'s respawn branch (the `.entWaiting` path, when
+`entDelay` hits 0), before spawning, check that floor's gap:
+```
+	lda gapX,x
+	cmp #GAP_SPAWN_CLEAR    ; ~145
+	bcs .deferSpawn          ; gap in the spawn zone -> wait, don't spawn over it
+	... (existing: Rng / EntTypeRoll / entType=type / entX=ENT_WRAP) ...
+	jmp .entNext
+.deferSpawn
+	lda #16
+	sta entDelay,x           ; short re-check delay; gap scrolls clear, then spawn
+```
+- `x` = floor index in the entity loop; `gapX,x` is that floor's gap. Floor 5 has `gapX=0` (no
+  gap) so it always spawns. New const `GAP_SPAWN_CLEAR` (≈145). No new RAM.
+- Because gap+entity then scroll together, clearing them at spawn keeps them apart all pass; the
+  gap's mid-pass wrap (0→159) only ever puts it *right* of (behind) the entity, so it never
+  catches up. Checking only at spawn is sufficient.
+
+### --- STATE SNAPSHOT (for post-compaction continuity) ---
+Done & committed: M1–M5, M6(a) spawn spacing (`f93cea0`), M6(b) speed-up (`33126e1`).
+Working tree is clean at `33126e1`. Build: `make` → `build/up.a26` (4096 bytes); verify in Stella.
+Key implementation facts not obvious from a quick skim:
+- Frame = WSYNC-exact: VSYNC 3 + VBLANK 36 + HUD 12 + 6 bands×30 + overscan(TIM64T) = 262. A
+  timer-based HUD/VBLANK *rolled* — keep it WSYNC-exact; `DrawDigits` ends on a `WSYNC`.
+- Positioning: gaps=Missile0, entity=GRP1, both via **cycle-74 HMOVE** (`Pos74M0`/`Pos74P1`,
+  `PosTblM0`@$f500 / `PosTblP1`@$f600, page-aligned offset 0 so one `JumpTabM0` serves both;
+  `CalcQuickPos` precomputes in overscan). Player=GRP0, coarse-strobed in the HUD transition.
+- `HMxx` default to `$80` (cycle-74 "no motion"); each positioner sets its own fine then restores
+  `$80`. Player held by `HMP0=$80`.
+- Collision = hardware `CXPPMM` bit7 (P0-P1); `CXCLR` each VBLANK; `CheckCollision` runs *before*
+  input/update so `playerFloor` matches the rendered frame.
+- Score: 48-px glyph kernel (`DrawDigits`/`FontTable`@$f700, `GetDigitPtrs`). Playing shows
+  `__nnnn`; game over alternates user-supplied `GameOverGlyphs` (reversed to bottom-row-first)
+  and `HInnnn` on `goCnt` (0-119 / 120-239). `hiScore` persists via `NewGame` soft-reset
+  (vs `Reset` one-time setup). Score `+1` lands on `scoreBCD+0` (least-significant).
+- Speed: `scrollSpeed` is 1/32-px fixed point; step = `(scrollFrac+scrollSpeed)>>5`; ramps
+  `+SPEED_INC`/cone to `SPEED_MAX` (≤224). User set `SPEED_INC=1` (gentle).
+- ROM layout note: code has twice outgrown a table page; tables bumped to $f500/$f600/$f700/$f800.
+  If code grows again, bump the `org`s (keep PosTblM0/P1 page-aligned at offset 0).
+- Cross-cutting deferred: sprite masking for clean edge slide-in/out (pairs with M7 animations).
+
 ### M7 — Object animations  ⬜
 - Animated frames for the entities (the JS skull cycles 4 frames; cone could shimmer). Drive
   from a frame counter; select the GRP1 bitmap per animation step.
