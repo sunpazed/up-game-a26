@@ -1,51 +1,53 @@
 # UP 1 WAY Atari 2600 Port
 
-This project is a DASM Atari 2600 port of the JavaScript game `UP 1 WAY`.
+This project is a DASM Atari 2600 port of the JavaScript game `UP 1 WAY`
+(`js/main.js`). Target: a complete, playable 4K cart.
 
 ## Current Status
 
-- The ROM builds with `make`.
-- Current output: `build/up.a26`.
-- Current screenshot reference: `build/up.png`.
-- The current `src/up.asm` is a verified stable debug baseline, not gameplay-complete.
+- The ROM builds with `make` → `build/up.a26` (exactly 4096 bytes).
+- Screenshot reference: `build/up.png` (saved from Stella).
+- `src/up.asm` now implements the **real game kernel** (per-platform repeated kernel),
+  not the old debug baseline. Progress is tracked by milestone in `GAME.md`.
 
-## Verified Baseline
+### Milestone progress
+- **M1 — Frame + 6 static platform bands**: ✅ done, verified in Stella (stable, no roll).
+- **M2 — Player sprite + jump-up lane movement**: ✅ done, verified in Stella.
+- **M3 — Scrolling gaps (Missile 0) + fall-through**: ✅ done, verified in Stella
+  (edge-to-edge cycle-74 positioning, no comb, stable player).
+- M4 — Entities (cones/skulls) + collision: pending.
+- M5 — HUD (6-digit score) + power-up + game-over/reset: pending.
 
-The visible kernel currently follows the stable pattern from `examples/example.asm`:
+## Kernel Architecture
 
-- renders Player 0 every scanline,
-- renders Player 1 every scanline,
-- renders Missile 0 every scanline,
-- renders Missile 1 every scanline,
-- renders the Ball every scanline.
+Per-platform repeated kernel (see `INSTRUCTIONS.md` and `GAME.md` for detail):
 
-This was verified in Stella as stable: no rolling and stable color.
+```
+VSYNC      3 lines
+VBLANK    36 lines     ; input + state updates
+visible  192 lines     ; HUD region (12) + 6 platform bands (30 each)
+overscan  30 lines
+                       ; total = 262 NTSC scanlines
+```
 
-The current debug objects also move right-to-left in a constant-cycle update slot. Player 0 remains fixed while Player 1, Missile 0, Missile 1, and the Ball wrap back to the right side after reaching the left edge.
+- Platforms are the **playfield** held solid full-width; band appearance is driven by
+  `COLUPF` swaps during HBLANK (background = invisible / green top / grey underside).
+- The **player** is `GRP0`, drawn only in the band matching its current floor by selecting a
+  sprite pointer per band (no per-scanline branching).
+- Gaps (M3) will use `ENAM0/ENAM1`; entities (M4) will use `GRP1` with per-floor type/color.
+- HUD (M5) is a dedicated 12-line top region rendering a 6-digit BCD score.
 
-## Temporarily Disabled
+## Design Rules
 
-- Platforms
-- Full gameplay updates
-- HUD/score rendering
-- Entities and collisions
-- Game-over display
-
-These were disabled to re-establish a reliable 262-scanline frame baseline.
-
-## Next Step
-
-Reintroduce exactly six static platform bands on top of the stable debug kernel.
-
-Rules for the next step:
-
-- Preserve fixed register writes in the visible kernel.
-- Avoid variable compare ladders inside scanlines.
-- Keep frame timing at 262 NTSC scanlines.
-- Verify with `make` and `build/up.png` before adding movement or gameplay.
+- Keep frame timing at exactly 262 NTSC scanlines; every band has an identical cycle budget.
+- All gameplay state updates happen in VBLANK/overscan, never free-running between `WSYNC`s.
+- Prefer table-/pointer-selected register values over compare ladders inside scanlines.
+- Each milestone ends in a clean `make` and a Stella visual check before the next begins.
 
 ## Build
 
 ```sh
 make
 ```
+
+Then load `build/up.a26` in Stella to verify and save a snapshot to `build/up.png`.

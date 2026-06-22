@@ -41,13 +41,54 @@ This document defines the comprehensive rules, mechanics, and visual elements of
 ## Assets
 
 - `js/main.js` This is the main game asset coded in javascript that you need to port into DASM 2600 assembly (4k cart). Read this source code and use it as the approach for the game you are coding for the 2600.
+- `screens.*` These images (png) are screenshots of the original game (`js/main.js`). The .gif file is an animation of the game being played.
 - `src/up.asm` This is the game asset you need to generate and test
-- `src/example.asm` This is an example file showcasing how the 2600 works. It's only an example if you need help.
+- `examples/*.asm` Examples showcasing how to use the 2600 with specific outcomes. Use these examples if you need help for routines.
 - `src/*.h` Resources used by the `.asm` files
 - `build/*` Where the game is built
 - `make` Generates the game
 - `GAME.md` Use this .md file as your planning document — add your approach, tasks, features, planning into this file
 - `INSTRUCTIONS.md` is this file
+
+---
+
+## How you might approach the 2600 graphics kernel
+
+### Kernel for the screen
+
+The original game is split into 6 platforms. We can think of the atari game kernel as a kernel that is developed for a single platform, and then repeated a number of times, as such;
+
+(vblank 37 lines)
+(platform kernel n+0)
+(platform kernel n+1)
+(platform kernel n+2)
+(...) repeated until 192 lines
+(overscan 30 lines)
+
+Ideally, the number of platforms we display is based on the timing for each platform (including updating all the objects), divisable by 192.
+
+### Kernel for each platform
+
+Objects;
+
+- COLUBK background colour
+- PF0/1/2 (playfield) is the platform graphics, and always solid
+- ENAM0 / ENAM1 are the 'gaps' that appear in the platform (they are the same colour as the background)
+- GRP0 is the player
+- GRP1 is the enemy
+
+Scanline approach;
+
+1. Position the missles for this platform (n+0) (they move right-to-left)
+2. Draw the player (it is always positioned in the same x-pos)
+3. Draw the enemy for (n+0) (it moves right-to-left)
+4. Repeat 2 and 3 until the player and enemy is drawn
+5. Turn on the platform to render the platform under the player and emeny
+6. Turn on the missles so 'gaps' appear in the platform
+7. Position the enemy for the next platform (n+1)
+8. Wait until enough cycles have completed, switch off the platform and missles.
+9. Repear for the next platform (n+1)
+
 
 ---
 

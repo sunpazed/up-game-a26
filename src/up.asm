@@ -1,684 +1,399 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; UP 1 WAY - Atari 2600 port (4K cart)
+;
+; Milestone 3 (+ edge-to-edge positioning rework):
+;   - 6 platform bands (playfield, COLUPF swaps).
+;   - Player (GRP0) drawn on its current floor band (jump-up input).
+;   - Gaps are Missile 0, repositioned per band, coloured the
+;     background so they cut a hole through the platform.
+;   - Player falls one tier when a gap scrolls under it.
+;
+; Horizontal positioning (gaps / enemy) uses the cycle-74 HMOVE
+; technique (after examples/hmove74.asm, by Omegamatrix):
+;   - In overscan a "quickPos" byte is precomputed per object
+;     (= HMOVE fine nibble | jump-table delay count).
+;   - In the kernel the object is positioned in ONE scanline: a
+;     short delay loop + an indirect jump into a RESxx strobe table
+;     that ends with `sta HMOVE` at cycle ~74. The cycle-74 HMOVE
+;     positions cleanly edge-to-edge (incl. x=0, strobe in HBLANK)
+;     and hides the HMOVE "comb" in the next line's HBLANK.
+;   The static player is positioned once at init with the plain
+;   divide-by-15 routine (off-screen, timing not critical).
+;
+; Timing:
+;   VSYNC      3   (VERTICAL_SYNC)
+;   VBLANK    36   (WSYNC loop)
+;   visible  192   (HUD 12 + 6 bands * 30, all WSYNC-exact)
+;   overscan ~30   (TIM64T timer; input + world update + precompute)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 	processor 6502
 	include "vcs.h"
 	include "macro.h"
-	include "xmacro.h"
 
-; -----------------------------------------------------------------------------
-; UP 1 WAY (Atari 2600, 4K)
-;
-; This file is intentionally documented and organized in readable sections.
-; The code currently implements:
-; - stable frame structure (VSYNC / VBLANK / kernel / overscan)
-; - lane-based player movement (jump up, fall on gap)
-; - scrolling gap model
-; - placeholder cone/skull entities with collision hooks
-; - HUD placeholder strip at top of screen
-;
-; The goal is a clean, extensible baseline that we can iterate on.
-; -----------------------------------------------------------------------------
-
-; -----------------------------------------------------------------------------
+;-------------------------------------------------------------
 ; Constants
-; -----------------------------------------------------------------------------
-GAME_STATE_PLAY     equ $00
-GAME_STATE_OVER     equ $01
+;-------------------------------------------------------------
+COL_BG       = $0C      ; light grey background
+COL_GREEN    = $C8      ; platform top (green)
+COL_GREY     = $06      ; platform underside (dark grey)
+COL_PLAYER   = $02      ; player sprite (dark grey)
 
-LANE_COUNT          equ 6
-LANE_LAST           equ 5
+PLAYER_X     = 10       ; fixed horizontal position of the player
 
-PLAYER_X_RESET      equ 40
-PLAYER_START_LANE   equ 5
-PLAYER_GAP_MIN      equ 36
-PLAYER_GAP_MAX      equ 44
+HUD_LINES    = 12
+NUM_BANDS    = 6
+BAND_PAD     = 11       ; air pad rows. band = setbg 1 + pos 2 (strobe + realign)
+                        ;            + pad 11 + sprite 8 + green 4 + grey 4 = 30
+SPRITE_H     = 8
+BAND_GREEN   = 4
+BAND_GREY    = 4
 
-GAP_X_MIN           equ 8
-GAP_X_MAX           equ 152
+GAP_WIDTH    = 8        ; missile gap width (NUSIZ0 = $30)
+GAP_WRAP     = 159      ; respawn x at the right edge (cycle-74 reaches 0..159)
+FALL_LO      = 12       ; gap-under-player window [FALL_LO..FALL_HI]
+FALL_HI      = 20
 
-DEBUG_P1_X_RESET    equ 110
-DEBUG_M0_X_RESET    equ 80
-DEBUG_M1_X_RESET    equ 50
-DEBUG_BALL_X_RESET  equ 20
-
-CONE_RESPAWN_X      equ 176
-SKULL_RESPAWN_X     equ 200
-
-; -----------------------------------------------------------------------------
-; RAM map
-; -----------------------------------------------------------------------------
-	seg.u Variables
+;-------------------------------------------------------------
+; RAM
+;-------------------------------------------------------------
+	SEG.U vars
 	org $80
 
-FrameCounter        ds 1
-GameState           ds 1
-Random              ds 1
+playerFloor     ds 1    ; 0 = top tier .. 5 = bottom tier
+playerBandCount ds 1    ; bandCount value at which to draw the player
+btnPrev         ds 1    ; fire button state last frame (edge detect)
+bandCount       ds 1    ; bands remaining in the visible kernel
+curFloor        ds 1    ; floor index of the band being drawn
+tempOne         ds 1    ; scratch for the fast divide in CalcQuickPos
+tempFloor       ds 1    ; scratch floor index across CalcQuickPos
+sprPtr          ds 2    ; pointer to current band's sprite data
+posJmp          ds 2    ; indirect pointer into the missile strobe table
+gapX            ds 6    ; per-floor gap x position (floor 5 unused/no gap)
+gapQuick        ds 6    ; per-floor precomputed quickPos (HMM0 fine | delay count)
+posJmpLo        ds 6    ; per-floor precomputed strobe-table entry (low byte)
 
-JoyPrev             ds 1
-JoyNow              ds 1
-JumpPressed         ds 1
-
-PlayerX             ds 1
-PlayerY             ds 1
-PlayerLane          ds 1
-
-DebugP1X            ds 1
-DebugM0X            ds 1
-DebugM1X            ds 1
-DebugBallX          ds 1
-
-Scroll              ds 1
-
-TierGap0            ds 1
-TierGap1            ds 1
-TierGap2            ds 1
-TierGap3            ds 1
-TierGap4            ds 1
-TierGap5            ds 1
-
-TierDir0            ds 1
-TierDir1            ds 1
-TierDir2            ds 1
-TierDir3            ds 1
-TierDir4            ds 1
-TierDir5            ds 1
-
-ConeX               ds 1
-ConeY               ds 1
-ConeLane            ds 1
-
-SkullX              ds 1
-SkullY              ds 1
-SkullLane           ds 1
-
-ActiveEntityType    ds 1 ; 0=cone, 1=skull (rendered on P1)
-
-ScoreLo             ds 1
-ScoreHi             ds 1
-HiScoreLo           ds 1
-HiScoreHi           ds 1
-
-KernelScanline      ds 1
-KernelPhase         ds 1
-PlayerGfx           ds 1
-Temp                ds 1
-
-; -----------------------------------------------------------------------------
-; ROM code
-; -----------------------------------------------------------------------------
-	seg
+;-------------------------------------------------------------
+; ROM
+;-------------------------------------------------------------
+	SEG code
 	org $f000
 
-Start
+Reset
 	CLEAN_START
-	jsr InitGame
 
-; Main frame loop.
-; The high-level flow is kept explicit and easy to audit.
+	; Solid, full-width playfield (held for the whole program)
+	lda #$F0
+	sta PF0
+	lda #$FF
+	sta PF1
+	sta PF2
+	lda #0
+	sta CTRLPF              ; players/missiles draw over the playfield
+
+	lda #COL_BG
+	sta COLUBK
+
+	; Missile 0 is GAP_WIDTH wide (player stays normal width)
+	lda #$30
+	sta NUSIZ0
+
+	; Initial game state: player on the bottom tier
+	lda #5
+	sta playerFloor
+	lda #0
+	sta btnPrev
+
+	; Staggered initial gap positions (floor 5 has no gap)
+	lda #140
+	sta gapX+0
+	lda #110
+	sta gapX+1
+	lda #80
+	sta gapX+2
+	lda #50
+	sta gapX+3
+	lda #130
+	sta gapX+4
+	lda #0
+	sta gapX+5
+
+	; Clear motion registers, then position the static player once
+	; (off-screen, plain divide-by-15). Afterwards set HMP0 = $80, the
+	; cycle-74 HMOVE "no motion" value: the per-band cycle-74 HMOVEs
+	; re-apply HMP0 every frame, and $00 there is NOT zero motion (it
+	; would walk the player), whereas $80 (NO_MO_74) holds it still.
+	sta HMCLR
+	lda #PLAYER_X
+	ldx #0
+	jsr PosStd
+	lda #$80
+	sta HMP0
+
+;-------------------------------------------------------------
+; Main frame loop
+;-------------------------------------------------------------
 NextFrame
-	; Explicit NTSC frame start.
-	; 3 VSYNC lines + 37 VBLANK lines + 192 visible + 30 overscan = 262.
 	lda #2
 	sta VBLANK
-	sta VSYNC
-	sta WSYNC
-	sta WSYNC
-	sta WSYNC
-	lda #0
-	sta VSYNC
+	VERTICAL_SYNC           ; 3 vsync lines
 
-	; Update the moving debug objects inside VBLANK, bounded by WSYNCs so it
-	; cannot shift the visible/overscan timing.
+	; 36 lines of VBLANK
+	ldx #36
+VBlankLoop
 	sta WSYNC
-	jsr UpdateDebugObjects
-	sta WSYNC
-
-	; VBLANK is 37 lines total: 2 update/alignment lines + 35 skipped lines.
-	SKIP_SCANLINES 35
+	dex
+	bne VBlankLoop
 
 	lda #0
-	sta VBLANK
+	sta VBLANK              ; display on
 
-	; 192 visible scanlines.
-	jsr DrawKernel
+;-------------------------------------------------------------
+; Visible kernel (192 lines)
+;-------------------------------------------------------------
+	; HUD region (playfield invisible)
+	lda #COL_BG
+	sta COLUPF
+	ldx #HUD_LINES
+HudLoop
+	sta WSYNC
+	dex
+	bne HudLoop
 
-	; Overscan with timed housekeeping.
+	; Six platform bands
+	lda #NUM_BANDS
+	sta bandCount
+BandLoop
+	; --- setbg line: background colour, player colour, missile off ---
+	sta WSYNC
+	lda #COL_BG
+	sta COLUPF
+	lda #COL_PLAYER
+	sta COLUP0
+	lda #0
+	sta ENAM0
+
+	; floor index = NUM_BANDS - bandCount, then position the gap missile
+	; (Pos74M0 consumes exactly one scanline, HMOVE at cycle ~74)
+	lda #NUM_BANDS
+	sec
+	sbc bandCount
+	sta curFloor
+	tay
+	jsr Pos74M0
+
+	; pick this band's player sprite (cycles absorbed into the first pad line)
+	lda bandCount
+	cmp playerBandCount
+	bne .blankSpr
+	SET_POINTER sprPtr, PlayerSprite
+	jmp .pad
+.blankSpr
+	SET_POINTER sprPtr, ZeroSprite
+.pad
+	ldx #BAND_PAD
+.padLoop
+	sta WSYNC
+	dex
+	bne .padLoop
+
+	; player sprite window (8 lines, top row first)
+	ldy #SPRITE_H-1
+.sprLoop
+	sta WSYNC
+	lda (sprPtr),y
+	sta GRP0
+	dey
+	bpl .sprLoop
+	; GRP0 is now 0 (sprite offsets 0-1 are blank)
+
+	; prepare platform rows: missile = background (so it shows as a gap),
+	; enable the gap if this floor has one (floor 5 has none).
+	lda #COL_BG
+	sta COLUP0
+	ldy curFloor
+	lda GapOnTable,y
+	sta ENAM0
+
+	; green top rows
+	sta WSYNC
+	lda #COL_GREEN
+	sta COLUPF
+	ldx #BAND_GREEN-1
+.grnLoop
+	sta WSYNC
+	dex
+	bne .grnLoop
+
+	; grey underside rows
+	sta WSYNC
+	lda #COL_GREY
+	sta COLUPF
+	ldx #BAND_GREY-1
+.gryLoop
+	sta WSYNC
+	dex
+	bne .gryLoop
+
+	dec bandCount
+	bne BandLoop
+
+	; turn the missile off before leaving the visible area
+	lda #0
+	sta ENAM0
+
+;-------------------------------------------------------------
+; Overscan (~30 lines via timer) - game logic + positioning precompute
+;-------------------------------------------------------------
 	lda #2
 	sta VBLANK
-	; PositionObjects calls SetHorizPosNoHMOVE five times. The example-style
-	; routine burns one WSYNC per object, then ApplyHorizMotion burns one final
-	; WSYNC. Total positioning cost: 6 overscan scanlines.
-	jsr PositionObjects
-	jsr ApplyHorizMotion
-	; Complete the 30-line overscan budget: 6 positioning + 24 idle.
-	SKIP_SCANLINES 24
+	lda #35
+	sta TIM64T
+
+	jsr ReadInput
+	jsr UpdateWorld
+
+	; Precompute each gap's quickPos + strobe-table entry (in overscan),
+	; so the visible kernel positions in one fixed-time scanline.
+	ldx #5
+.precomp
+	lda gapX,x
+	stx tempFloor
+	jsr CalcQuickPos        ; A = quickPos (clobbers Y, tempOne)
+	ldx tempFloor
+	sta gapQuick,x
+	and #$0F                ; low nibble = delay count = jump-table index
+	tay
+	lda JumpTabM0,y
+	sta posJmpLo,x
+	dex
+	bpl .precomp
+
+	; playerBandCount = NUM_BANDS - playerFloor (for next frame's kernel)
+	lda #NUM_BANDS
+	sec
+	sbc playerFloor
+	sta playerBandCount
+
+WaitOverscan
+	lda INTIM
+	bne WaitOverscan
+	sta WSYNC
 
 	jmp NextFrame
 
-; -----------------------------------------------------------------------------
-; Initialization
-; -----------------------------------------------------------------------------
-
-; InitGame: full boot init (includes high score reset).
-InitGame
-	lda #0
-	sta HiScoreLo
-	sta HiScoreHi
-	jsr InitRound
-	rts
-
-; InitRound: per-round reset (preserves high score).
-InitRound
-	lda #GAME_STATE_PLAY
-	sta GameState
-
-	lda #$A5
-	sta Random
-
-	lda #0
-	sta FrameCounter
-	sta JoyPrev
-	sta JoyNow
-	sta JumpPressed
-	sta Scroll
-	sta ScoreLo
-	sta ScoreHi
-
-	lda #PLAYER_X_RESET
-	sta PlayerX
-	lda #DEBUG_P1_X_RESET
-	sta DebugP1X
-	lda #DEBUG_M0_X_RESET
-	sta DebugM0X
-	lda #DEBUG_M1_X_RESET
-	sta DebugM1X
-	lda #DEBUG_BALL_X_RESET
-	sta DebugBallX
-	lda #PLAYER_START_LANE
-	sta PlayerLane
-	jsr SyncPlayerY
-
-	; Initial gap offsets per lane. These are intentionally staggered.
-	lda #4
-	sta TierGap0
-	lda #7
-	sta TierGap1
-	lda #10
-	sta TierGap2
-	lda #13
-	sta TierGap3
-	lda #16
-	sta TierGap4
-	lda #19
-	sta TierGap5
-
-	; Direction per lane: 0=left, 1=right.
-	lda #1
-	sta TierDir0
-	lda #0
-	sta TierDir1
-	lda #1
-	sta TierDir2
-	lda #0
-	sta TierDir3
-	lda #1
-	sta TierDir4
-	lda #0
-	sta TierDir5
-
-	; Initial entities and their lanes.
-	lda #0
-	sta ActiveEntityType
-	jsr RespawnCone
-	jsr RespawnSkull
-	rts
-
-; -----------------------------------------------------------------------------
-; Input and world updates
-; -----------------------------------------------------------------------------
-
-; ReadInput: edge-detect trigger button into JumpPressed.
-; INPT4 bit7: 0=pressed, 1=released.
-ReadInput
-	lda INPT4
-	and #$80
-	sta JoyNow
-
-	lda #0
-	sta JumpPressed
-
-	lda JoyPrev
-	beq ReadInput_PrevWasPressed
-	lda JoyNow
-	bne ReadInput_StoreCurrent
-	lda #1
-	sta JumpPressed
-
-ReadInput_PrevWasPressed
-ReadInput_StoreCurrent
-	lda JoyNow
-	sta JoyPrev
-	rts
-
-; UpdateWorld: top-level gameplay update dispatch.
-UpdateWorld
-	inc FrameCounter
-
-	lda GameState
-	beq UpdateWorld_Playing
-
-	; Game-over state: restart on next button press.
-	lda JumpPressed
-	beq UpdateWorld_Done
-	jsr InitRound
-	jmp UpdateWorld_Done
-
-UpdateWorld_Playing
-	jsr UpdateGaps
-	jsr UpdatePlayerLane
-	; Milestone focus: missile-driven gap scrolling.
-	; Entity updates/collisions will be re-enabled in the next gate.
-
-UpdateWorld_Done
-	rts
-
-; UpdateDebugObjects: move all non-player debug objects right-to-left.
-; Constant-cycle update for all four moving objects.
-; Each object does: DEC zp, LDY zp, LDA table,Y, STA zp = 15 cycles.
-; Four objects + RTS = 66 cycles, safely inside one scanline.
-; P0/player remains fixed. Table maps 0 -> 160, all other values to self.
-UpdateDebugObjects
-	dec DebugP1X
-	ldy DebugP1X
-	lda MoveWrapTable,y
-	sta DebugP1X
-
-	dec DebugM0X
-	ldy DebugM0X
-	lda MoveWrapTable,y
-	sta DebugM0X
-
-	dec DebugM1X
-	ldy DebugM1X
-	lda MoveWrapTable,y
-	sta DebugM1X
-
-	dec DebugBallX
-	ldy DebugBallX
-	lda MoveWrapTable,y
-	sta DebugBallX
-
-	rts
-
-; UpdateGaps: moves one shared missile gap left/right.
-UpdateGaps
-	lda FrameCounter
-	and #$01
-	bne UpdateGaps_Done
-
-	lda TierDir0
-	beq UpdateGaps_MoveLeft
-
-UpdateGaps_MoveRight
-	inc TierGap0
-	lda TierGap0
-	cmp #GAP_X_MAX
-	bcc UpdateGaps_Done
-	lda #0
-	sta TierDir0
-	jmp UpdateGaps_Done
-
-UpdateGaps_MoveLeft
-	dec TierGap0
-	lda TierGap0
-	cmp #GAP_X_MIN
-	bcs UpdateGaps_Done
-	lda #1
-	sta TierDir0
-
-UpdateGaps_Done
-	rts
-
-; UpdatePlayerLane: applies jump-up and automatic fall-down behavior.
-UpdatePlayerLane
-	lda JumpPressed
-	beq UpdatePlayerLane_CheckFall
-
-	lda PlayerLane
-	beq UpdatePlayerLane_CheckFall
-	dec PlayerLane
-	jsr SyncPlayerY
-	rts
-
-UpdatePlayerLane_CheckFall
-	ldx PlayerLane
-	jsr CheckHoleForLane
-	beq UpdatePlayerLane_Done
-
-	cpx #LANE_LAST
-	beq UpdatePlayerLane_FallOffBottom
-
-	inc PlayerLane
-	jsr SyncPlayerY
-	rts
-
-UpdatePlayerLane_FallOffBottom
-	; Bottom lane is safe for now. If the gap marker reaches the player on
-	; the lowest lane, keep the player there instead of ending the round.
-	; Game-over will be restored later via explicit hazard collision.
-
-UpdatePlayerLane_Done
-	rts
-
-; CheckHoleForLane
-; IN:  X = lane index
-; OUT: A = 1 if player aligns with shared moving missile-gap marker, else 0
-CheckHoleForLane
-	lda TierGap0
-	cmp #PLAYER_GAP_MIN
-	bcc CheckHoleForLane_NoHole
-	cmp #PLAYER_GAP_MAX
-	bcs CheckHoleForLane_NoHole
-	lda #1
-	rts
-
-CheckHoleForLane_NoHole
-	lda #0
-	rts
-
-; UpdateEntities: moves placeholders and respawns when off-screen.
-UpdateEntities
-	lda FrameCounter
-	and #$01
-	bne UpdateEntities_Done
-
-	dec ConeX
-	dec SkullX
-
-	lda ConeX
-	cmp #2
-	bcs UpdateEntities_CheckSkull
-	jsr RespawnCone
-
-UpdateEntities_CheckSkull
-	lda SkullX
-	cmp #2
-	bcs UpdateEntities_Done
-	jsr RespawnSkull
-
-UpdateEntities_Done
-	rts
-
-; CheckCollisions: lane + X-distance checks for cone/skull.
-CheckCollisions
-	; Cone pickup
-	lda ConeLane
-	cmp PlayerLane
-	bne CheckCollisions_CheckSkull
-	lda ConeX
-	jsr IsNearPlayerX
-	beq CheckCollisions_CheckSkull
-	jsr AddScorePoint
-	jsr RespawnCone
-
-CheckCollisions_CheckSkull
-	; Skull hazard
-	lda SkullLane
-	cmp PlayerLane
-	bne CheckCollisions_Done
-	lda SkullX
-	jsr IsNearPlayerX
-	beq CheckCollisions_Done
-	lda #GAME_STATE_OVER
-	sta GameState
-	jsr UpdateHighScore
-
-CheckCollisions_Done
-	rts
-
-; IsNearPlayerX
-; IN:  A = entity X
-; OUT: A = 1 if |entityX - playerX| < 4, else 0
-IsNearPlayerX
-	sta Temp
-	lda Temp
-	cmp PlayerX
-	bcs IsNearPlayerX_EntityRight
-
-	; Entity is left of player
-	lda PlayerX
-	sec
-	sbc Temp
-	cmp #4
-	bcc IsNearPlayerX_Near
-	bcs IsNearPlayerX_Far
-
-IsNearPlayerX_EntityRight
-	lda Temp
-	sec
-	sbc PlayerX
-	cmp #4
-	bcc IsNearPlayerX_Near
-
-IsNearPlayerX_Far
-	lda #0
-	rts
-
-IsNearPlayerX_Near
-	lda #1
-	rts
-
-; -----------------------------------------------------------------------------
-; Scoring helpers
-; -----------------------------------------------------------------------------
-
-; AddScorePoint: 16-bit binary score increment.
-AddScorePoint
-	inc ScoreLo
-	bne AddScorePoint_Done
-	inc ScoreHi
-
-AddScorePoint_Done
-	rts
-
-; UpdateHighScore: keeps HiScore >= current score.
-UpdateHighScore
-	lda ScoreHi
-	cmp HiScoreHi
-	bcc UpdateHighScore_Done
-	bne UpdateHighScore_Store
-
-	lda ScoreLo
-	cmp HiScoreLo
-	bcc UpdateHighScore_Done
-
-UpdateHighScore_Store
-	lda ScoreLo
-	sta HiScoreLo
-	lda ScoreHi
-	sta HiScoreHi
-
-UpdateHighScore_Done
-	rts
-
-; -----------------------------------------------------------------------------
-; Entity and lane sync helpers
-; -----------------------------------------------------------------------------
-
-; RespawnCone: chooses new lane and places cone at right side.
-RespawnCone
-	lda #CONE_RESPAWN_X
-	sta ConeX
-	jsr NextRandom
-	and #$07
-	cmp #LANE_COUNT
-	bcc RespawnCone_StoreLane
-	sec
-	sbc #LANE_COUNT
-
-RespawnCone_StoreLane
-	sta ConeLane
-	jsr SyncConeY
-	rts
-
-; RespawnSkull: chooses new lane and places skull at right side.
-RespawnSkull
-	lda #SKULL_RESPAWN_X
-	sta SkullX
-	jsr NextRandom
-	and #$03
-	clc
-	adc #2
-	sta SkullLane
-	jsr SyncSkullY
-	rts
-
-SyncPlayerY
-	ldx PlayerLane
-	lda LaneYTable,x
-	sta PlayerY
-	rts
-
-SyncConeY
-	ldx ConeLane
-	lda LaneYTable,x
-	sta ConeY
-	rts
-
-SyncSkullY
-	ldx SkullLane
-	lda LaneYTable,x
-	sta SkullY
-	rts
-
-; -----------------------------------------------------------------------------
-; Positioning and kernel
-; -----------------------------------------------------------------------------
-
-; PositionObjects: coarse/fine horizontal setup done in overscan.
-; Debug milestone: position all five TIA objects like examples/example.asm.
-; X index mapping for SetHorizPos: 0=P0, 1=P1, 2=M0, 3=M1, 4=Ball.
-PositionObjects
-	sta HMCLR
-	ldx #0
-	lda PlayerX
-	jsr SetHorizPosNoHMOVE
-
-	ldx #1
-	lda DebugP1X
-	jsr SetHorizPosNoHMOVE
-
-	ldx #2
-	lda DebugM0X
-	jsr SetHorizPosNoHMOVE
-
-	ldx #3
-	lda DebugM1X
-	jsr SetHorizPosNoHMOVE
-
-	ldx #4
-	lda DebugBallX
-	jsr SetHorizPosNoHMOVE
-	rts
-
-; DrawKernel: 192 visible scanlines.
-; Debug kernel based on examples/example.asm.
-; It writes both players, both missiles, and the ball on every scanline.
-; Platforms are intentionally disabled until this baseline is stable.
-DrawKernel
-	lda #$0e
-	sta COLUBK
-	lda #$08
-	sta COLUP0
-	lda #$56
-	sta COLUP1
-	lda #$3a
-	sta COLUPF
-	lda #$30
-	sta CTRLPF
-	lda #$10
-	sta NUSIZ0
-	sta NUSIZ1
-
-	lda #0
-	sta KernelScanline
-	sta KernelPhase
-	sta PF0
-	sta PF1
-	sta PF2
-	sta GRP0
-	sta GRP1
-	ldx #192
-	ldy #0
-
-DrawKernel_Loop
+;-------------------------------------------------------------
+; Pos74M0 - position Missile 0 at gap[curFloor] in one scanline.
+;   IN: Y = curFloor. Uses precomputed gapQuick / posJmpLo.
+;   Cycle-74 HMOVE: clean edge-to-edge positioning, no comb.
+;-------------------------------------------------------------
+Pos74M0
+	lda gapQuick,y
+	sta HMM0                ; high nibble = fine motion (low nibble ignored)
+	and #$0F
+	tax                     ; X = delay count
+	lda posJmpLo,y
+	sta posJmp
+	lda #>PosTblM0
+	sta posJmp+1
 	sta WSYNC
-	lda DebugSprite,y
-	sta GRP0
-	eor #$ff
-	sta GRP1
-	tya
-	and #$02
-	sta ENAM0
-	sta ENAM1
-	sta ENABL
-
-	; Mid-screen missile offset experiment.
-	; At halfway, shift both missiles 16 pixels left by applying two -8 HMOVEs.
-	; HMCLR clears player/ball motion first, so only HMM0/HMM1 are active.
-	cpx #96
-	bne DrawKernel_CheckSecondMissileOffset
-	sta HMCLR
-	lda #$80
-	sta HMM0
-	sta HMM1
-	sta HMOVE
-	jmp DrawKernel_NoMidMissileOffset
-
-DrawKernel_CheckSecondMissileOffset
-	cpx #95
-	bne DrawKernel_NoMidMissileOffset
-	sta HMOVE
-
-DrawKernel_NoMidMissileOffset
-	iny
-	cpy #8
-	bne DrawKernel_NoWrap
-	ldy #0
-
-DrawKernel_NoWrap
+	; 9 cycles of dead time (matches hmove74 calibration)
+	nop                     ; 2
+	nop                     ; 2
+	nop                     ; 2
+	.byte $04,$EA           ; NOP zp (3 cycles)
+.wait74
 	dex
-	beq DrawKernel_Done
-	jmp DrawKernel_Loop
+	bpl .wait74
+	jmp (posJmp)            ; into PosTblM0; strobes RESM0, HMOVE @ ~74, rts
 
-DrawKernel_Done
-	lda #0
-	sta GRP0
-	sta GRP1
-	sta ENAM0
-	sta ENAM1
-	sta ENABL
+;-------------------------------------------------------------
+; ReadInput - one-button jump-up (rising edge of fire button)
+;-------------------------------------------------------------
+ReadInput
+	ldx #0                  ; assume not pressed
+	lda INPT4
+	bmi .store              ; bit7 set => not pressed
+	ldx #1                  ; pressed
+	lda btnPrev
+	bne .store              ; held => no new press
+	lda playerFloor
+	beq .store              ; already at top tier
+	dec playerFloor         ; jump up one tier
+.store
+	stx btnPrev
 	rts
 
-; DrawHUD: placeholder hook for future dedicated score kernel.
-DrawHUD
+;-------------------------------------------------------------
+; UpdateWorld - scroll gaps left, wrap, and fall-through check
+;-------------------------------------------------------------
+UpdateWorld
+	; scroll gaps for floors 0..4 (floor 5 has no gap)
+	ldx #4
+.scroll
+	dec gapX,x
+	bne .next               ; reached 0 => fully off the left, wrap to right
+	lda #GAP_WRAP
+	sta gapX,x
+.next
+	dex
+	bpl .scroll
+
+	; fall-through: if player floor < 5 and a gap is under the player
+	lda playerFloor
+	cmp #5
+	bcs .noFall             ; bottom tier is solid/safe
+	tax
+	lda gapX,x
+	cmp #FALL_HI+1
+	bcs .noFall             ; gap is right of the player
+	cmp #FALL_LO
+	bcc .noFall             ; gap is left of the player
+	inc playerFloor         ; fall down one tier
+.noFall
 	rts
 
-; SetHorizPosNoHMOVE
-; IN:  A = X position, X = object index (0=P0,1=P1,2=M0,3=M1,4=BL)
-; OUT: Coarse position reset and fine value stored.
-; This keeps the same 6-cycle delay before SEC as examples/example.asm
-; (`sta HMOVE` + `sta HMCLR`) but does not clear all HMPx values per object.
-; Clear HMCLR once before positioning the batch, then call ApplyHorizMotion.
-; Note: examples/hmove74.asm is a specialized one-object routine. It times
-; RESP0 and HMOVE together around cycle 74 using quickPos/jump tables. Do not
-; use that as a drop-in replacement for this five-object batched routine.
-SetHorizPosNoHMOVE
-	sta WSYNC
-	SLEEP 6
+;-------------------------------------------------------------
+; CalcQuickPos - A = x (0..159) -> A = quickPos
+;   quickPos = (HMOVE fine nibble << 4) | delay count (low nibble).
+;   Fast divide-by-15 + tables, from examples/hmove74.asm. Uses Y, tempOne.
+;-------------------------------------------------------------
+CalcQuickPos
+	sta tempOne
+	lsr
+	adc #4
+	lsr
+	lsr
+	lsr
+	adc tempOne
+	ror
+	lsr
+	lsr
+	lsr
+	tay                     ; Y = x / 15
+	lda MultTab,y
 	sec
+	sbc tempOne
+	asl
+	asl
+	asl
+	asl
+	clc
+	adc DelayTab,y
+	rts
 
-SetHorizPosNoHMOVE_DivideLoop
+;-------------------------------------------------------------
+; PosStd - plain divide-by-15 positioning (object X at pixel A).
+;   Used once at init for the static player (off-screen). 2 scanlines.
+;-------------------------------------------------------------
+PosStd
+	sta WSYNC
+	sta HMOVE               ; leading HMOVE/HMCLR set the standard strobe timing
+	sta HMCLR               ; (without these the strobe fires ~18px too far left)
+	sec
+.psd
 	sbc #15
-	bcs SetHorizPosNoHMOVE_DivideLoop
+	bcs .psd
 	eor #7
 	asl
 	asl
@@ -686,163 +401,88 @@ SetHorizPosNoHMOVE_DivideLoop
 	asl
 	sta RESP0,x
 	sta HMP0,x
-	rts
-
-; ApplyHorizMotion: apply final fine offsets after all SetHorizPos calls.
-ApplyHorizMotion
 	sta WSYNC
 	sta HMOVE
 	rts
 
-; NextRandom: tiny LFSR-ish generator used for lane selection.
-NextRandom
-	lda Random
-	beq NextRandom_DoEor
-	lsr
-	bcc NextRandom_NoEor
+;-------------------------------------------------------------
+; Tables
+;-------------------------------------------------------------
+; ENAM0 enable byte per floor (bit1 = enable). Floor 5 = no gap.
+GapOnTable
+	.byte 2,2,2,2,2,0
 
-NextRandom_DoEor
-	eor #$B4
+; quickPos divide tables (from examples/hmove74.asm)
+MultTab
+	.byte -25,-10,5,20,35,50,65,80,95,110,-21
+DelayTab
+	.byte 1,2,3,4,5,6,7,8,9,10,0
 
-NextRandom_NoEor
-	sta Random
-	rts
-
-; -----------------------------------------------------------------------------
-; Data tables
-; -----------------------------------------------------------------------------
-
-; Lane top-Y values for 8-pixel sprites.
-LaneYTable
-	.byte 11,29,47,65,83,101
-
-; Gap animation patterns (coarse playfield masks).
-PlatformPF0Table
-	.byte $f0,$e0,$c0,$80,$00,$10,$30,$70
-PlatformPF1Table
-	.byte $ff,$ff,$7f,$3f,$1f,$0f,$87,$c3
-PlatformPF2Table
-	.byte $ff,$fe,$fc,$f8,$f0,$e0,$c0,$80
-
-; Platform register values indexed by PlatformMask (0=off, 1=platform).
-; The kernel writes all of these every scanline so platform rows and gaps take
-; the same timing path whether visible or hidden.
-PlatformPF0Value
-	.byte $00,$f0
-PlatformPF1Value
-	.byte $00,$ff
-PlatformPF2Value
-	.byte $00,$ff
-PlatformP1Value
-	.byte $00,%00011000
-PlatformEnableValue
-	.byte $00,$02
-
-; 16-step fill table for top HUD placeholder.
-HudPF1Table
-	.byte $00,$80,$c0,$e0,$f0,$f8,$fc,$fe
-	.byte $ff,$7f,$3f,$1f,$0f,$07,$03,$01
-
-; 8-line debug sprite used by the reference-style stable kernel.
-DebugSprite
-	.byte %10000001
-	.byte %01000010
-	.byte %00100100
-	.byte %00011000
-	.byte %00011000
-	.byte %00100100
-	.byte %01000010
-	.byte %10000001
-
-; Constant-cycle movement wrap table.
-; Index with the value after DEC. 0 wraps to 160; all other values preserve the
-; decremented value. This removes branch timing from object movement updates.
-MoveWrapTable
-	.byte 160
-.moveWrapValue SET 1
-	REPEAT 255
-	.byte .moveWrapValue
-.moveWrapValue SET .moveWrapValue + 1
-	REPEND
-
-; 7-line player sprite.
+; Player sprite (stored bottom row first; index 7 = top row)
 PlayerSprite
-	.byte %00111100
-	.byte %01111110
-	.byte %01111110
-	.byte %01111110
-	.byte %01111110
-	.byte %01111110
-	.byte %00111100
+	.byte %00000000         ; offset 0 (bottom)
+	.byte %00000000
+	.byte %01001000         ;  l  l
+	.byte %01001000         ;  l  l
+	.byte %11111100         ; llllll
+	.byte %11010100         ; ll l l
+	.byte %11010100         ; ll l l
+	.byte %11111100         ; llllll  (offset 7, top)
 
-; 192-line platform mask: exactly six 6-scanline platform bands.
-; Bands begin at scanlines 18, 36, 54, 72, 90, and 108.
-PlatformMask
-	REPEAT 18
-	.byte 0
-	REPEND
-	REPEAT 6
-	.byte 1
-	REPEND
-	REPEAT 12
-	.byte 0
-	REPEND
-	REPEAT 6
-	.byte 1
-	REPEND
-	REPEAT 12
-	.byte 0
-	REPEND
-	REPEAT 6
-	.byte 1
-	REPEND
-	REPEAT 12
-	.byte 0
-	REPEND
-	REPEAT 6
-	.byte 1
-	REPEND
-	REPEAT 12
-	.byte 0
-	REPEND
-	REPEAT 6
-	.byte 1
-	REPEND
-	REPEAT 12
-	.byte 0
-	REPEND
-	REPEAT 6
-	.byte 1
-	REPEND
-	REPEAT 78
-	.byte 0
-	REPEND
+ZeroSprite
+	.byte 0,0,0,0,0,0,0,0
 
-; 8-line cone sprite.
-ConeSprite
-	.byte %00011000
-	.byte %00011000
-	.byte %00111100
-	.byte %00111100
-	.byte %01111110
-	.byte %01111110
-	.byte %11111111
-	.byte %00011000
+;-------------------------------------------------------------
+; Missile-0 cycle-74 strobe table (must stay within one page).
+;   Each entry strobes RESM0; the $1C (NOP abs) swallows the next
+;   entry's `sta RESM0`, so only the jumped-to strobe executes, then
+;   execution falls through to `sta HMOVE` at cycle ~74.
+;-------------------------------------------------------------
+	org $f200
+PosTblM0
+pM0_3
+	sta RESM0
+	.byte $1C
+pM0_15
+	sta RESM0
+	.byte $1C
+pM0_30
+	sta RESM0
+	.byte $1C
+pM0_45
+	sta RESM0
+	.byte $1C
+pM0_60
+	sta RESM0
+	.byte $1C
+pM0_75
+	sta RESM0
+	.byte $1C
+pM0_90
+	sta RESM0
+	.byte $1C
+pM0_105
+	sta RESM0
+	.byte $1C
+pM0_120
+	sta RESM0
+	.byte $1C
+pM0_135
+	sta RESM0
+	.byte $1C
+pM0_150
+	sta RESM0
+	sta HMOVE
+	sta WSYNC               ; re-align: the positioning line ends here so the
+	rts                     ; band keeps an exact, identical scanline budget
 
-; 8-line skull-ish placeholder sprite.
-SkullSprite
-	.byte %00111100
-	.byte %01111110
-	.byte %01011010
-	.byte %01111110
-	.byte %00111100
-	.byte %00100100
-	.byte %01011010
-	.byte %10000001
+JumpTabM0
+	.byte <pM0_3, <pM0_15, <pM0_30, <pM0_45, <pM0_60, <pM0_75
+	.byte <pM0_90, <pM0_105, <pM0_120, <pM0_135, <pM0_150
 
-; -----------------------------------------------------------------------------
+;-------------------------------------------------------------
 ; Vectors
-; -----------------------------------------------------------------------------
+;-------------------------------------------------------------
 	org $fffc
-	.word Start
-	.word Start
+	.word Reset
+	.word Reset

@@ -1,190 +1,377 @@
 # UP 1 WAY - Implementation Plan
 
-## 1. Game Analysis (JS Version)
-The JavaScript version of "Up 1 Way" defines the following core mechanics:
-- **Player**: A bipedal grey sprite.
-- **Movement**: 
-  - Automatic horizontal movement (the screen scrolls right-to-left).
-  - **Jump Up**: On button press, the player moves to the tier above.
-  - **Fall Down**: If the player walks over a gap in the current tier, they fall to the tier below.
-- **Tiers/Platforms**:
-  - A vertical stack of platforms.
-  - Each tier has "holes" (gaps) that move right-to-left.
-- **Entities**:
-  - **Yellow Cones (Triangles)**: Collectibles that increase score.
-  - **Pink/Red Ovals**: Hazards that cause Game Over.
-  - **Power-up**: A power-up that clears all hazards (skulls) from the screen.
-- **Scoring**: Displayed in the top-left. High score in the top-right.
+> Aligned to the updated `INSTRUCTIONS.md` (per-platform repeated kernel approach).
 
-## 2. Atari 2600 Technical Strategy
-To implement this on the Atari 2600 (6502 assembly), I will use:
-- **Graphics**:
-  - **Player 0**: The player sprite.
-  - **Player 1**: Used for items (cones/ovals) or as a secondary sprite if needed.
-  - **Missiles/Ball**: Used for small objects or additional entities.
-  - **Playfield**: Used to draw the platforms and holes. Since the playfield is limited, I might use a combination of the playfield and sprites/missiles to represent the platforms and their gaps.
-  - **Background**: Minimalist colors as specified.
-- **Logic**:
-  - **Kernel**: The main loop that draws the screen line-by-line (scanline-based rendering).
-  - **Vertical Sync & VBlank**: Standard timing for frame updates.
-  - **Input**: Reading the joystick/button state.
-  - **Memory Management**: Using RAM to track player position, scores, entity positions, and platform/gap locations.
-- **Complexity Management**:
-  - The 2600 has very limited RAM (128 bytes). I must be extremely efficient with how I store platform and entity data.
-  - I will likely use a simplified representation of the tiers/gaps.
+## 0. Source-of-Truth Notes
+- `INSTRUCTIONS.md` is the authoritative spec. The current target architecture is the
+  **per-platform repeated kernel** described there, not the old "all-5-TIA-objects debug
+  baseline" modeled on `examples/example.asm`.
+- `src/up.asm` has been removed from the tree — this is effectively a fresh implementation
+  built on the kernel architecture below. The old `build/up.png` reflects the retired debug
+  baseline and is no longer the reference for correctness.
+- Reference screenshots: `screens/demo-01..03.png` (gameplay + GAME OVER) and
+  `screens/screenshot.gif`.
 
-## 3. Milestones (Verifiable Deliverables)
+## 1. Game Analysis (from `js/main.js`)
 
-### Milestone 1: Basic Kernel & Player Rendering
-- [ ] Set up the project structure and build process (`make`).
-- [ ] Implement a basic kernel that clears the screen and renders a single player sprite at a fixed position.
-- [ ] **Verification**: Successful compilation with `make` and a stable, non-crashing loop.
+### Layout
+- **6 floors**, `floorIndexToY(i) = 16 + i*15` → JS y = 16, 31, 46, 61, 76, 91 in a 100px view.
+  Floor 0 = top, floor 5 = bottom.
+- Player is **fixed horizontally** at `x = 20` (left side); the world scrolls right-to-left.
+- Player starts on **floor 5** (bottom).
+- Platform strip = 2px green top + 3px dark-grey underside; sprites sit at `y - 5` (just above).
+- A `light_blue` baseline is drawn near the bottom of the view.
 
-### Milestone 2: Movement & Input
-- [ ] Implement input reading (button press).
-- [ ] Implement vertical movement (changing Y position of Player 0).
-- [ ] **Verification**: Successful compilation and code logic for Y-position changes in response to input.
+### Player movement
+- **Jump up**: `input.isJustPressed && floorIndex > 0` → `targetFi = floorIndex - 1`.
+- **Fall down**: `checkHole(floorIndex, x)` true (player standing over a gap) → `targetFi = floorIndex + 1`.
+- Movement interpolates `pos.y` toward the target floor's y; no manual descent otherwise.
+- `checkHole`: a hole at `hx` opens a gap for x in `(hx+3, hx+6)`.
 
-### Milestone 3: Scrolling Platforms & Gaps
-- [ ] Implement a method to render "platforms" and "gaps".
-- [ ] Implement the horizontal scrolling mechanic (moving platform/gap data right-to-left).
-- [ ] **Verification**: Successful compilation and correct rendering of moving platform/gap patterns.
+### World objects (all scroll right-to-left by `scr = difficulty`, spawn at x≈209/200)
+- **Holes** (`holeXs`): gaps in a floor. **Floor 5 never has holes** (always solid/safe).
+  Other floors periodically spawn holes (`nextHoleDist`), holes are 9px wide.
+- **Yellow cones** (`bambooXs`, char `c`): collectible, **+1 score** on contact.
+- **Pink/red ovals** (`skullXs`, animated char `d`): hazard. **Contact → `end()` (GAME OVER)**.
+  Falling past the bottom is also fatal in spirit (bottom floor is the safety net here).
+- **Power-up** (`powXs`, char `h`): on contact, converts every skull on screen into bamboo
+  (clears hazards). Spawns rarely.
 
-### Milestone 4: Entities & Collision
-- [ ] Implement entity spawning (Yellow Cones, Pink/Red Ovals).
-- [ ] Implement collision detection between the player and entities.
-- [ ] **Verification**: Successful compilation and logic for collision detection.
+### Scoring / HUD
+- Score shown top-left (integer); high score shown top-right as `HI n`.
+- `addScore(1, ...)` on cone pickup.
 
-### Milestone 5: Scoring, HUD & Game Loop
-- [ ] Implement the scoring system and HUD (Score and High Score).
-- [ ] Implement the Game Over state.
-- [ ] Implement the power-up mechanic.
-- [ ] **Verification**: Full game loop functionality.
+## 2. Atari 2600 Kernel Architecture (per `INSTRUCTIONS.md`)
 
-## 4. Resource Mapping
-- **Player Sprite**: `player.asm` style or custom bit patterns.
-- **Items**: Small sprites or missiles.
-- **Platforms**: Playfield segments or customized scanline drawing.
-- **HUD**: Small sprites or playfield-based digits.
+### Whole-frame structure (262 NTSC lines)
+```
+VSYNC      3 lines
+VBLANK     37 lines     ; input + all world/state updates here
+visible    192 lines    ; HUD region (6-digit score) + 6 platform kernels
+overscan   30 lines     ; batched repositioning / spillover updates
+```
+- Reserve a fixed HUD region at the top of the visible frame (~16 lines) for the 6-digit score,
+  then divide the remaining ~176 lines across the **6 platform bands (~29 lines each)**.
+- Keep each band's cycle budget identical so timing is deterministic and the picture does not roll.
+  (Exact HUD/band line counts are tuned in M1/M5 to keep the total at 192.)
 
-## 5. Example References and Integration Notes
+### TIA object assignment (per platform band)
+- `COLUBK` — background (light grey).
+- `PF0/PF1/PF2` — the solid platform graphic (green top region drawn via COLUPF / band color).
+- `ENAM0` / `ENAM1` — the **gaps** in the platform (painted background-colored to "cut holes").
+- `GRP0` — the player (only rendered in the band matching the player's current floor).
+- `GRP1` — the enemy / item for that band (cone or skull). The **bitmap and `COLUP1`
+  are selected from `entType[floor]`** so the same object renders as a yellow cone or a
+  pink/red skull depending on the per-band RAM variable.
 
-This section maps useful implementation patterns from `examples/` into the current milestone plan.
+### HUD region (dedicated, not a 7th band)
+- A **dedicated top region** above the 6 platform bands renders a **6-digit BCD score**.
+- Use the 48-pixel retrigger digit path (`examples/6-digit-score.asm` / `examples/punchout.asm`).
+- This region sits in its own scanline budget at the top of the visible frame; the 6 platform
+  bands then divide the remaining visible lines evenly.
 
-### Milestone 1 (Kernel + player rendering)
-- Reuse coarse/fine positioning structure from `examples/example.asm` (`SetHorizPos`) and `examples/punchout.asm` (`DoPositionMac`).
-- Keep HMOVE sequence disciplined (`WSYNC`/`HMCLR`/divide loop/`RESPx`+`HMPx`/`WSYNC`/`HMOVE`) to avoid horizontal jitter.
+### Per-band scanline approach (from INSTRUCTIONS §"Kernel for each platform")
+1. Position the missiles for this platform `n+0` (gaps; they scroll right-to-left).
+2. Draw the player (fixed x) — only on the player's floor band.
+3. Draw the enemy/item for `n+0` (scrolls right-to-left).
+4. Repeat 2–3 across the band's sprite rows until player + enemy are drawn.
+5. Turn on the platform (PF) to render the strip under the sprites.
+6. Turn on the missiles so the gaps appear in the platform.
+7. Position the enemy/item for the next platform `n+1`.
+8. Wait out the remaining band cycles, then switch off PF and missiles.
+9. Repeat for the next band.
 
-### Milestone 2 (Input + movement)
-- Keep player lane/tier movement logic in VBLANK and keep scanline kernel simple.
-- Use positional routines from `examples/example.asm` as a stable horizontal anchor while vertical tier logic changes per frame.
+### Safety constraints (carried from INSTRUCTIONS)
+- All gameplay state updates happen in VBLANK/overscan, never as free-running code between WSYNCs.
+- Visible kernel stays deterministic and short-cycle — **table-driven** register values, no
+  variable per-scanline CMP/branch ladders.
+- Hold frame at exactly 262 lines; keep each band's budget fixed.
 
-### Milestone 3 (Scrolling platforms + gaps)
-- Use playfield-first approach and table-driven masks inspired by PF table use in `examples/energy-bar.asm` and `examples/punchout.asm`.
-- Prefer compact table/state representations for gaps and scrolling offsets to fit 128-byte RAM constraints.
+## 3. RAM Model (128 bytes — keep tight)
+Proposed layout (refine during implementation):
+- `playerFloor` (0–5), `playerY` / `playerTargetFloor`, jump-in-progress flag.
+- Per-floor scroll/gap state: gap x-position (one active gap per floor to start), gap-present flag.
+- **Per-platform entity arrays, indexed by floor (0–5):**
+  - `entType[6]` — entity kind for that band: none / cone / skull (drives GRP1 bitmap + COLUP1).
+  - `entX[6]` — x-position of that band's entity (scrolls right-to-left).
+  - This is how cone-vs-skull is distinguished: the **graphic and color are selected per band
+    from `entType[floor]`** during the kernel; the kernel reads the table, no per-scanline branching.
+- `scoreBCD[3]` — 6-digit BCD score for the HUD; `hiScoreBCD[3]` if a high score is kept.
+- `gameState` (playing / game-over), `frameCounter` / RNG seed for spawns.
 
-### Milestone 4 (Entities + collision)
-- Use missile/player positioning and enable patterns from `examples/example.asm` (`ENAMx`, `RESMx`) as references for lightweight entities.
-- Keep collision checks/state transitions in VBLANK/overscan, not in the visible kernel.
+> Simplification vs JS: JS keeps arrays of many holes/cones/skulls per floor. On the 2600 we
+> start with **one gap and one entity per floor band** (matching GRP1/ENAMx being single
+> objects per band) and expand only if cycle/RAM budget allows.
 
-### Milestone 5 (Scoring + HUD + loop completion)
-- 6-digit score reference path:
-  - `examples/6-digit-score.asm` (`BCDScore`, `AddScore`, `GetDigitPtrs`, `DrawDigits`)
-  - `examples/punchout.asm` (`GetDigitPtrs`, `ScoreDrawDigits`)
-- Energy bar reference path:
-  - `examples/energy-bar.asm` (`DoEnergy`, `PF0Table/PF1Table/PF2Table`)
-  - `examples/punchout.asm` (`DrawEnergy`, `DoEnergy`)
+## 4. Milestones (each ends in a clean `make` + emulator check)
 
-### ROM-size contingency
-- If the game no longer fits 4K, use `examples/punchout.asm` bank-switch macros as a migration template.
-- Until then, keep `up.asm` single-bank to reduce complexity and risk.
+### M1 — Frame skeleton + 6 static platform bands  ✅ DONE (G1 verified)
+- VSYNC/VBLANK/visible/overscan at 262 lines.
+- Render 6 green/grey platform bands via PF, 30 lines each, fixed register writes.
+- Verify: `make` passes; `build/up.png` shows 6 stable horizontal platforms, no roll, stable color.
 
-## 6. Immediate Build Checklist (`src/up.asm`)
+### M2 — Player sprite + lane (floor) movement  ✅ DONE (G2 verified)
+- Draw GRP0 at fixed x on the player's current floor band.
+- Read button (INPT4 / fire); jump up one floor on press (snap, no interpolation yet).
+- Verify: button moves player up exactly one floor; can't go above floor 0.
 
-### Phase A: Stabilize frame and core state
-- [x] Replace ad-hoc frame logic with explicit VSYNC/VBLANK/Kernel/Overscan sections.
-- [x] Ensure one clean horizontal positioning routine is used correctly (object index explicitly set).
-- [x] Normalize RAM map for player, tier/gap scroll, entity placeholders, score, and game state.
+### M3 — Scrolling gaps + fall-through  ✅ DONE (verified in Stella)
+- ENAM0 gap (Missile 0) per floor, scrolling right-to-left edge-to-edge; floor 5 stays solid.
+- Player falls one floor when a gap scrolls under it.
+- Gaps positioned with the cycle-74 HMOVE technique (clean 0..159, no comb).
+- Verified: gaps scroll smoothly edge-to-edge, no glitch/comb, player stable, fall works.
+- `PLAYER_X = 10` (final). Fall window `[FALL_LO=12 .. FALL_HI=20]` — see note below if the
+  drop timing wants centring on the new player x.
 
-### Phase B: Gameplay scaffolding
-- [x] Add tier/lane index model and jump-up / fall-down lane transitions.
-- [x] Add table-driven gap progression (scroll offset + per-tier gap position).
-- [x] Add placeholder cone/hazard lane objects and collision hooks.
+### M4 — Entities (cones + skulls) + collision
+- GRP1 per band as cone or skull, scrolling right-to-left, spawning at right edge.
+- Collision (player vs GRP1) via position compare in VBLANK/overscan:
+  cone → score++, skull → game over.
+- Verify: cone contact increments score; skull contact triggers game-over state.
 
-### Phase C: HUD and progression hooks
-- [x] Add score/high-score variables and update hooks.
-- [x] Add HUD placeholder pass (simple PF/sprite markers first).
-- [x] Add game-over flag/state and reset path.
+### M5 — HUD, power-up, game-over/reset
+- **6-digit BCD score** in the dedicated top HUD region, 48-px digit path
+  (`examples/6-digit-score.asm` / `examples/punchout.asm`).
+- Power-up that clears skulls.
+- GAME OVER display + reset to a new game.
+- Verify: full loop playable as a 4K cart.
 
-### Planned subroutine names (ordered)
-- [x] `InitGame`
-- [x] `ReadInput`
-- [x] `UpdateWorld`
-- [x] `UpdatePlayerLane`
-- [x] `UpdateGaps`
-- [x] `UpdateEntities`
-- [x] `CheckCollisions`
-- [x] `DrawKernel`
-- [x] `DrawHUD` (placeholder initially)
-- [x] `SetHorizPos`
+## 5. Example References
+- Horizontal positioning: `examples/example.asm` (`SetHorizPos`), `examples/punchout.asm`
+  (`DoPosition`/`DoPositionMac`). Sequence: WSYNC / HMCLR / divide loop / RESPx+HMPx / WSYNC / HMOVE.
+- Score digits: `examples/6-digit-score.asm` (`BCDScore`, `AddScore`, `GetDigitPtrs`, `DrawDigits`).
+- PF/missile bar techniques: `examples/energy-bar.asm` (`DoEnergy`, `PF0/1/2Table`).
+- Bank switching (only if ROM exceeds 4K): `examples/punchout.asm` macros — stay single-bank otherwise.
 
-## 7. Verification Gates (Stop-and-Check Workflow)
+## 6. Verification Gates
+- **G1**: `make` passes; 6 stable platforms render, no rolling, correct colors (matches demo palette).
+- **G2**: jump-up moves one floor only; fall-through on gaps; floor 5 safe.
+- **G3**: cone → score; skull → game over.
+- **G4**: HUD score/HI correct; power-up clears skulls; game over + reset works.
 
-Use this sequence to avoid large unverified jumps:
+## 7. Decisions (resolved) & Open Questions
 
-### Gate 1: Baseline stability (ready now)
-- Build passes with `make`.
-- Emulator check: stable frame, visible tiers, player sprite visible, no crash/reset loop.
+### Resolved
+- **HUD**: a **dedicated top region** rendering a **6-digit score** (not a 7th platform band).
+- **Cone vs skull**: distinguished by **graphics + color**, tracked per platform index in RAM
+  (`entType[6]`); the kernel selects the GRP1 bitmap and `COLUP1` from that table.
+- **Entities**: start with **one entity per floor band** (GRP1 is a single object per band).
 
-### Gate 2: Movement and lane logic
-- Emulator check: button press moves player up one lane only.
-- Emulator check: standing over a lane gap causes fall-down by one lane.
+### Still open
+- The `light_blue` baseline — own TIA object vs folded into the bottom band.
+- Smooth jump animation (JS interpolates y between tiers; M2 currently snaps).
 
-### Gate 3: Entity interaction
-- Emulator check: cone contact increments score values.
-- Emulator check: skull contact transitions to game-over state.
+### Decided during implementation
+- HUD = **12 lines**, each band = **30 lines** → 12 + 6×30 = 192 visible. Locked.
+- `VERTICAL_SYNC` macro emits **4 WSYNCs** (3 vsync lines + the transition WSYNC), so VBLANK
+  uses **36** lines (not 37) to total exactly 262 — matching `examples/example.asm`.
 
-### Gate 4: HUD and polish pass
-- Replace placeholder HUD with explicit score/high-score presentation.
-- Add game-over text style closer to source screenshots.
+## 8. Implementation Log (detailed, per milestone)
 
-## 8. Current Status (Verified)
+> Updated between milestones. Describes *how* each milestone is implemented in `src/up.asm`.
 
-### Stable Baseline Kernel
-- `make` builds successfully.
-- `build/up.a26` currently uses a stable debug kernel modeled after `examples/example.asm`.
-- The debug kernel renders all five TIA objects on every visible scanline.
-- `build/up.png` was reviewed and verified as stable:
-  - no rolling,
-  - stable color,
-  - visible P0/P1/M0/M1/Ball debug objects.
-- Current debug movement is constant-cycle: P1, M0, M1, and Ball move right-to-left and wrap; P0 remains fixed.
+### M1 — Frame skeleton + 6 static platform bands
 
-### Temporarily Disabled
-- Platforms are currently disabled from the visible kernel.
-- Gameplay update logic is disabled from overscan for timing safety.
-- Full gameplay logic remains disabled; only the constant-cycle debug movement slot is active.
-- HUD, score rendering, entities, collisions, and game-over rendering are not active in the current verified baseline.
+**Frame structure.** `NextFrame` runs: set `VBLANK=2` (blank), `VERTICAL_SYNC` (3 vsync
+lines), a 36-iteration `VBlankLoop` of `WSYNC`, then `VBLANK=0` to enable the display. The
+visible kernel draws 12 HUD lines + 6 bands × 30 lines. Overscan is `VBLANK=2` + a 30-iteration
+`WSYNC` loop. `jmp NextFrame` closes the loop. Total scanlines = 4 (macro WSYNCs) + 36 + 12 +
+180 + 30 = **262**.
 
-### Why This Reset Was Needed
-- Previous platform attempts rolled because overscan and visible-kernel work were not fixed-budget.
-- Extra `SetHorizPos` calls consumed extra `WSYNC`s without matching overscan budget.
-- Variable per-scanline branch ladders made platform timing fragile.
+**Platforms via playfield + COLUPF swaps.** The playfield is set **solid and full-width once**
+at `Reset` (`PF0=$F0`, `PF1=$FF`, `PF2=$FF`, `CTRLPF=0`) and never touched again. A platform is
+made visible or invisible purely by changing `COLUPF`:
+- air rows: `COLUPF = COL_BG` (same as `COLUBK`) → the solid playfield is invisible;
+- green top rows: `COLUPF = COL_GREEN`;
+- grey underside rows: `COLUPF = COL_GREY`.
 
-## 9. Next Milestone
+This avoids touching PF registers mid-screen and keeps every band's cycle budget identical.
 
-### Gate 1A: Reintroduce Six Static Platforms
-- Starting point: current stable debug kernel only.
-- Add exactly six platform bands using table-selected values.
-- Preserve fixed writes to `GRP0`, `GRP1`, `ENAM0`, `ENAM1`, and `ENABL` every visible scanline.
-- Do not add gameplay updates yet.
-- Verification: `make` passes and `build/up.png` remains stable with color.
+**HBLANK-safe color changes.** Every `COLUPF` change is the *first* write after a `WSYNC`, so
+it lands during HBLANK before the beam reaches the visible area. The structure for each colored
+run is: `sta WSYNC` → set color → loop the remaining `WSYNC`s of that run.
 
-### Gate 1B: Reintroduce One Moving Gap Marker
-- Use one object as a visible debug gap marker.
-- Move it only during fixed-budget overscan/VBLANK.
-- Verification: no rolling, no color instability.
+**Band layout (30 lines).** 22 air + 4 green + 4 grey. Bands are counted down with the
+`bandCount` RAM byte (6→1); the loop ends on `dec bandCount / bne`.
 
-### Gate 2: Player Lane Movement
-- Re-enable player lane movement only after Gate 1A/1B are stable.
-- Lowest lane remains safe; falling at bottom does not game over.
+**Colors.** `COL_BG=$0C` (light grey), `COL_GREEN=$C8`, `COL_GREY=$06`. Verified against the
+demo palette in `build/up.png`.
+
+### M2 — Player sprite + jump-up lane movement
+
+**Player as GRP0, one band only.** The player is an 8-line GRP0 sprite drawn only in the band
+matching `playerFloor`. Bands draw top tier (floor 0) first, so the player's band is reached
+when `bandCount == playerBandCount`, where `playerBandCount = NUM_BANDS - playerFloor`
+(computed once per frame in VBLANK).
+
+**Constant-time band selection (no per-scanline branching).** The air region is restructured to
+`1 (setbg) + BAND_PAD (13) + SPRITE_H (8) = 22` lines. On each band's first air line, after
+setting `COLUPF=COL_BG`, the code compares `bandCount` to `playerBandCount` and points the
+zero-page `sprPtr` at either `PlayerSprite` or `ZeroSprite`. This branch happens once per band
+(between scanlines), not inside the scanline loop, so the visible kernel stays deterministic.
+
+**Sprite window.** The 8 sprite lines run `sta WSYNC / lda (sprPtr),y / sta GRP0 / dey / bpl`,
+with `y` counting 7→0. Data is stored bottom-row-first so index 7 is the top row. The indexed
+load + store complete ~8 cycles into HBLANK — well before the beam reaches `PLAYER_X=20`
+(~29 CPU cycles in). Both sprite tables sit within a single ROM page (`$f0ed`, `$f0f5`) so the
+`lda (zp),y` is constant-cycle. `PlayerSprite` offsets 0–1 are blank, so `GRP0` is already 0
+when the kernel reaches the green/grey rows — no extra clear needed.
+
+**Horizontal positioning.** `SetHorizPos` (coarse `RESP0` + fine `HMP0` via the classic
+`SBC #15` divide loop) is called once at `Reset` with `A=PLAYER_X, X=0`, followed by
+`WSYNC`/`HMOVE`. The player never moves horizontally, so it is never repositioned again and
+overscan needs no `HMOVE`.
+
+**Input / jump (`ReadInput`, in VBLANK).** Reads `INPT4` (fire, active-low on bit 7). Rising-edge
+detection uses `btnPrev`: on a fresh press, if `playerFloor > 0` it does `dec playerFloor`
+(move up one tier), clamped at the top. Movement currently **snaps** between tiers; smooth
+interpolation (as in the JS source) is deferred to polish.
+
+**RAM used so far:** `playerFloor`, `playerBandCount`, `btnPrev`, `bandCount`, `sprPtr` (2).
+
+### M3 — Scrolling gaps + fall-through
+
+**Gaps are Missile 0.** Each floor (except floor 5) has one gap whose x lives in `gapX[6]`. A gap
+is rendered by enabling `ENAM0` over the platform rows with the missile **colored the
+background color**, so it punches a hole through the green top and grey underside. Default TIA
+priority draws missiles over the playfield (`CTRLPF=0`), which is what makes the hole appear.
+`NUSIZ0=$30` sets the missile to 8 px wide (`GAP_WIDTH`).
+
+**COLUP0 is time-shared.** GRP0 (player) and M0 (gap) share `COLUP0`, but they live on different
+scanlines within a band, so the kernel swaps it: `COL_PLAYER` for the air/sprite rows,
+`COL_BG` for the platform rows. The swap to background happens in the tail of the last sprite
+line (a background missile over background air is invisible, so enabling it early is harmless),
+keeping the platform-row HBLANK budget free for the `COLUPF` write.
+
+**Per-band missile positioning (`PosObject`).** On each band, after computing
+`curFloor = NUM_BANDS - bandCount`, the kernel loads `gapX[curFloor]` and calls `PosObject`
+with `X=2` (object index → `RESM0`/`HMM0`). `PosObject` is a **self-contained 2-scanline**
+routine: `WSYNC / HMCLR / SBC #15 divide loop / EOR #7 / ASL×4 / strobe RESP0,x / set HMP0,x /
+WSYNC / HMOVE`. The trailing `HMOVE` applies the fine offset so gaps scroll at 1-px resolution.
+`HMCLR` zeroes every HMxx each call, so the once-positioned player never drifts on these
+HMOVEs (its position is latched by its own `RESP0`). The same routine positions the player at
+`Reset` (`X=0`), so player and gaps share one calibration and stay aligned for fall detection.
+The per-band `HMOVE` leaves a small black "comb" on the left 8 px of one air line per band —
+a cosmetic artifact to clean up later.
+
+**Band layout (still 30 lines):** `1 (setbg) + 2 (PosObject) + 11 (pad) + 8 (sprite) +
+4 (green) + 4 (grey)`.
+
+**Game logic moved to overscan under a timer.** `ReadInput` + `UpdateWorld` now run in overscan,
+which is bounded by `TIM64T` (`lda #35`) and a `WaitOverscan` poll on `INTIM` + final `WSYNC`.
+This makes overscan a **fixed line count regardless of how long the logic branches take**, so
+variable update work can never change the frame's scanline total (the roll trap that bit the
+earlier baseline). The visible kernel stays exact-192 via WSYNC; VBLANK stays the verified
+36-line loop. `playerBandCount` is recomputed at the end of overscan so the next frame's kernel
+sees the latest floor.
+
+**`UpdateWorld`.** Scrolls floors 0–4 (`dec gapX,x`), wrapping a gap back to `GAP_WRAP` (154)
+when it reaches 0. Fall-through: if `playerFloor < 5` and `gapX[playerFloor]` is within
+`[FALL_LO=12 .. FALL_HI=20]` (gap overlapping the player's fixed x≈20), it does
+`inc playerFloor`. Floor 5 is always safe.
+
+**Known simplifications (M3):** all floors 0–4 carry a perpetual scrolling gap (no spawn RNG
+yet); jump and fall can both fire in one frame (no mid-jump lockout like the JS `targetFi`
+state); movement still snaps between tiers.
+
+**RAM added:** `curFloor`, `gapX[6]`.
+
+#### M3 fixes (post-emu feedback)
+
+- **Gap didn't scroll fully to the left edge.** The old wrap fired at `gapX < 8`. **Fix:**
+  wrap exactly when `dec gapX` reaches 0, so the gap travels to the left edge before recycling.
+
+- **Band dropped a pixel when a gap was at the far right; gaps had to "appear" mid-screen.**
+  The old `PosObject` body between its two `WSYNC`s was 77 cycles at 11 `SBC #15` iterations
+  (`x≥150`), overrunning the 76-cycle line so the trailing `WSYNC` stole a scanline that frame.
+  Capping `GAP_WRAP` low avoided the glitch but kept gaps from entering at the right edge.
+  **Fix (precompute fine — per the suggested approach):**
+  - A new `CalcFine` does the `÷15 / EOR #7 / ASL×4` fine math; in **overscan** the frame
+    precomputes `gapFine[6]` for every floor.
+  - The kernel loads `gapFine[floor]` into `HMM0` in the band's first air line (before
+    positioning), so the positioner no longer computes or stores the fine.
+  - `PosObject` → **`PosCoarse`**: drops the trailing `sta HMP0,x` (fine is pre-set) **and**
+    the per-band `HMCLR` (done once at init, so the pre-set fine isn't wiped). Body is now
+    **≤70 cycles even at x=159** (11 iterations) — fits the scanline with margin.
+  - `HMCLR` runs once at `Reset` after positioning the player (player fine via `HMP0`), so
+    per-band missile `HMOVE`s never disturb the static player; `PosCoarse` uses the same
+    calibration for both, keeping player and gaps aligned for fall detection.
+  - **Result:** gaps scroll in from the right edge, no pixel drop. Removing the per-band
+    `HMCLR` shifts all objects ~9px left uniformly (a constant offset; fall alignment is
+    unchanged because player and gaps share it). `GAP_WRAP=164` (user-verified).
+
+- **Gap couldn't scroll edge-to-edge; the leftmost block (`gapX < $10`) wrapped to the right.**
+  The plain divide-by-15 positioner can't represent the leftmost ~block: for small `gapX` the
+  `RESM0` strobe lands in HBLANK (pinned far-left) and the fine offset can push the position
+  **negative**, which wraps mod-160 to the right edge. An interim attempt that *hid* the gap
+  below a threshold was rejected (the gap must scroll off, not disappear).
+
+#### Edge-to-edge positioning rework (cycle-74 HMOVE) — IMPLEMENTED
+
+Replaced the positioner with the **cycle-74 HMOVE** technique (after `examples/hmove74.asm`,
+by Omegamatrix), which positions any object 0..159 cleanly in one scanline — including the far
+left (strobe during HBLANK) — and hides the HMOVE comb in the next line's HBLANK.
+
+- **Precompute (`CalcQuickPos`, overscan):** a fast divide-by-15 + `MultTab`/`DelayTab` produces
+  a `quickPos` byte per gap = `(HMOVE fine nibble << 4) | delay-count`. Stored in `gapQuick[6]`;
+  the strobe-table entry (`JumpTabM0[delay]`) is precomputed into `posJmpLo[6]`.
+- **Kernel (`Pos74M0`, one scanline):** load `quickPos` → `HMM0` (fine), mask the delay count,
+  `WSYNC`, 9-cycle pad, a `dex/bpl` delay loop, then `jmp (posJmp)` into `PosTblM0` — a page-aligned
+  table of `sta RESM0 / .byte $1C` entries (the `$1C` NOP-abs swallows the next entry's strobe, so
+  only the jumped-to strobe runs) that falls through to `sta HMOVE` at cycle ~74. A `sta WSYNC`
+  follows the HMOVE so every band's positioning line is an identical, exact length (the HMOVE is
+  always at cycle ~74 regardless of gap x), keeping the scanline budget deterministic.
+- The static player keeps the plain divide-by-15 routine (`PosStd`) at init (off-screen).
+  **Gotcha 1:** the per-band cycle-74 HMOVE re-applies *every* object's HMxx, and at cycle 74
+  `HM=$00` is NOT zero motion — it walks the object. The player is strobed only once, so its
+  `HMP0` must be set to `$80` (`NO_MO_74`) after positioning to stay put; clearing it to `$00`
+  made the player jump to random x each frame. (The missile is immune — it's re-strobed and
+  given a fresh calibrated `HMM0` every band.)
+  **Gotcha 2:** `PosStd` must include the leading `sta HMOVE / sta HMCLR` of the canonical
+  positioning routine. Without them the `RESP0` strobe fires ~6 cycles (~18px) early, pinning
+  the player at the far left — so it visually fell through gaps ~18px before they reached it
+  (the gaps position accurately via cycle-74, the player did not). With the leading pair, both
+  render logical-x at pixel-x and the fall window lines up.
+- `GAP_WRAP=159` (true right edge); the gap now scrolls 159→0 and wraps. `GapOnTable` retained
+  only to keep floor 5 gap-free.
+- **Band layout (still 30):** `setbg 1 + pos 2 (strobe + realign) + pad 11 + sprite 8 +
+  green 4 + grey 4`.
+
+**RAM:** `gapQuick[6]`, `posJmpLo[6]`, `posJmp[2]`, `tempOne`, `tempFloor` (replaced the interim
+`gapFine`/`gapEnable`). **Tables added:** `MultTab`, `DelayTab`, `JumpTabM0`, `PosTblM0`
+(page-aligned at `$f200`).
+
+**Verification caveat:** this is a timing-critical port done without local emulator access; the
+exact cycle-74 calibration (9-cycle pad, strobe table) follows the reference and may need a
+1–2 cycle tuning pass confirmed in Stella.
+
+## 9. Steering Log (user-directed decisions)
+
+This project is being built collaboratively; the user (an experienced 2600/asm developer) has
+materially steered the implementation. Recording the key interventions:
+
+- **Updated `INSTRUCTIONS.md` to the per-platform repeated-kernel architecture.** Reframed the
+  whole approach away from the old debug baseline toward PF-platforms + ENAMx-gaps + GRP0/GRP1.
+- **HUD = dedicated top region rendering a 6-digit score** (not a 7th band). Directed the HUD
+  design in §2.
+- **Cone vs skull tracked per platform index in RAM** (`entType[]`), with graphic + colour
+  selected from the table — drove the M4 entity model and `entType[6]`/`entX[6]` design.
+- **Diagnosed the M3 far-right pixel-drop** as the `÷15` fine-positioning loop overrunning a
+  raster line (>76 cycles) — a precise root-cause call that pointed straight at the fix.
+- **Directed `GAP_WRAP` higher (≈154)** so gaps enter from the true right edge rather than
+  "appearing" mid-screen, and asked for a timing workaround to keep within the 2600's limits.
+- **Proposed precomputing the fine positions in overscan and reading them from a RAM table**
+  (for gaps and the upcoming enemy). This is exactly what unblocked far-right positioning:
+  precompute `gapFine[]` in overscan → kernel skips the fine math/store → `PosCoarse` fits 11
+  `SBC` iterations in one scanline. See the "M3 fixes" entry above.
+- **Tested `GAP_WRAP=164`** as safe on hardware/emulator and directed the bump.
+- **Reported the `gapX < $10` left-edge bug** and asked whether it was fine-positioning or
+  something else — which pinpointed the leftmost-block / HBLANK-strobe wrap limitation.
+- **Rejected hiding the gap and directed a generic edge-to-edge positioning method** ("position
+  at 0 during horizontal blanking… cycle efficient… missile(s) and enemy sprite"). This drove
+  the cycle-74 HMOVE rework (`Pos74M0` + `CalcQuickPos`), the proper full-range solution.
+- **Diagnosed the player-vs-gap pixel mismatch** (player dropping through holes before reaching
+  them) as a fine-position alignment issue → fixed `PosStd`'s calibration. Set `PLAYER_X = 10`
+  as the final player position.
+- **Process: keep the `.md` docs updated between milestones**, with detailed implementation
+  writeups — and maintain this steering log.
