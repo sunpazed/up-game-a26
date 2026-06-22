@@ -124,6 +124,11 @@ hiScore         ds 2    ; 4-digit BCD high score (persists across games)
 goCnt           ds 1    ; game-over text cycle: 0-119 GAMEOVER, 120-239 HInnnn
 animFrame       ds 1    ; player run-cycle frame (0 or 1)
 animTimer       ds 1    ; frames left until the next player-frame swap
+entSlide        ds 6    ; per-floor edge-slide state: 0 = normal; 1..7 = sliding
+                        ;   OUT the LEFT edge (asl amount); $80|N = sliding IN
+                        ;   the RIGHT edge (asl amount N, reflected via REFP1)
+entDrawLo       ds 6    ; per-floor resolved entity sprite low byte (base or shift)
+entRefp         ds 6    ; per-floor REFP1 value ($08 while sliding in, else $00)
 Digit0          ds 12   ; 6 font pointers (Digit0..Digit5) for the score kernel
 loopCnt         ds 1    ; scanline counter inside DrawDigits
 
@@ -228,6 +233,19 @@ NewGame
 	lda #105
 	sta entX+5
 
+	; entities start normal (not sliding); seed entDrawLo for the first frame's
+	; kernel (the overscan precompute refreshes it every frame after that).
+	ldx #5
+.ngEnt
+	lda #0
+	sta entSlide,x
+	sta entRefp,x
+	ldy entType,x
+	lda EntSprLo,y
+	sta entDrawLo,x
+	dex
+	bpl .ngEnt
+
 	jsr GetDigitPtrs        ; seed digit pointers for the first HUD
 
 ;-------------------------------------------------------------
@@ -275,6 +293,8 @@ VBlankLoop
 ; Visible kernel (192 lines = HUD 12 + 6 bands * 30)
 ;-------------------------------------------------------------
 	; --- HUD region: 6-digit score (12 WSYNC-exact lines) ---
+	lda #0
+	sta REFP1               ; clear any slide-in reflect so score digits (GRP1) aren't mirrored
 	lda #COL_BG
 	sta COLUPF              ; HUD line 0: playfield invisible behind the score
 	jsr DrawDigits          ; HUD lines 1-9 (DrawDigits ends on a WSYNC)
@@ -335,15 +355,19 @@ BandLoop
 .blankSpr
 	SET_POINTER sprPtr, ZeroSprite
 .selEnt
-	; entity sprite + colour for this floor's type
+	; entity sprite + colour for this floor's type. The low byte is precomputed
+	; (base or pre-shifted slide frame); the page is the base page normally, or
+	; the slide-table page while sliding (entSlide != 0).
 	ldy curFloor
 	ldx entType,y
 	lda EntColorTable,x
 	sta COLUP1
-	lda EntSprLo,x
+	lda entDrawLo,y
 	sta entPtr
-	lda #>ZeroSprite
+	lda #>ZeroSprite        ; base + slide frames all share this page
 	sta entPtr+1
+	lda entRefp,y           ; reflect GRP1 while sliding in (else 0)
+	sta REFP1
 
 	; 2-line top air pad: drops the sprite within the band so its feet land on
 	; the platform below. (GRP0/GRP1 are 0 here from the previous band's clear.)
@@ -470,6 +494,36 @@ BandLoop
 	tay
 	lda JumpTabM0,y
 	sta entJmpLo,x
+	; resolve this floor's entity sprite low byte + REFP1. entSlide 0 = base
+	; sprite, no reflect. Otherwise shift N = entSlide & $7F selects the slide
+	; frame (SlideBaseLo[type] + (N-1)*8); the $80 flag (slide-in) sets REFP1.
+	lda entSlide,x
+	beq .pcBase
+	and #$7F                ; N = shift amount (strip the slide-in flag)
+	sec
+	sbc #1                  ; N-1 (0..6)
+	asl
+	asl
+	asl                     ; * 8 (rows per shift frame)
+	ldy entType,x
+	clc
+	adc SlideBaseLo,y
+	sta entDrawLo,x
+	lda entSlide,x
+	and #$80                ; slide-in flag -> REFP1 bit3 ($80 >> 4 = $08)
+	lsr
+	lsr
+	lsr
+	lsr
+	sta entRefp,x
+	jmp .pcSprDone
+.pcBase
+	ldy entType,x
+	lda EntSprLo,y
+	sta entDrawLo,x
+	lda #0
+	sta entRefp,x
+.pcSprDone
 	dex
 	bpl .precomp
 
@@ -632,11 +686,35 @@ UpdateWorld
 .entLoop
 	lda entType,x
 	beq .entWaiting         ; type 0 = hidden, waiting to respawn
-	dec entX,x
-	bne .entNext
+	lda entSlide,x
+	beq .entScroll          ; 0 -> normal scroll
+	bmi .entSlideIn         ; $80|N -> sliding IN from the right edge
+	; 1..7 -> sliding OUT the left edge (shift grows, then hide)
+	inc entSlide,x          ; advance the shift (per scroll step => speed-linked)
+	lda entSlide,x
+	cmp #8
+	bcc .entNext            ; 1..7 still partly on-screen
 	lda #0
-	sta entType,x           ; reached the edge -> hide + arm a respawn delay
+	sta entType,x           ; fully off the left edge -> hide + arm respawn
+	sta entSlide,x
 	jsr SetRespawnDelay
+	jmp .entNext
+.entSlideIn
+	dec entSlide,x          ; $80|N -> $80|(N-1): grow in from the right edge
+	lda entSlide,x
+	cmp #$80
+	bne .entNext            ; still entering ($80|7 .. $80|1)
+	lda #0
+	sta entSlide,x          ; N=0 -> fully in; normal scroll begins next step
+	jmp .entNext
+.entScroll
+	; normal scroll until the entity reaches the left edge (entX = 0)
+	lda entX,x
+	beq .entStartSlide
+	dec entX,x
+	jmp .entNext
+.entStartSlide
+	inc entSlide,x          ; 0 -> 1: hold at x=0, kernel now draws asl x1
 	jmp .entNext
 .entWaiting
 	dec entDelay,x
@@ -658,6 +736,8 @@ UpdateWorld
 	sta entType,x
 	lda #ENT_WRAP
 	sta entX,x
+	lda #$80|7              ; begin sliding IN from the right edge (reflected)
+	sta entSlide,x
 .entNext
 	dex
 	bpl .entLoop
@@ -922,38 +1002,46 @@ PlayerSprite1
 PlayerFrameLo
 	.byte <PlayerSprite0, <PlayerSprite1
 
-ZeroSprite
-	.byte 0,0,0,0,0,0,0,0
+; Entity sprite rows (bottom row first), defined as symbols so the base sprites
+; AND the left/right slide shift tables (all in page f5, below) generate from the
+; SAME source and never drift. Edit these rows to change the cone / skull art.
+CONE0 = %00000000
+CONE1 = %00000000
+CONE2 = %11111111         ; wide base
+CONE3 = %01000010
+CONE4 = %01111110
+CONE5 = %00100100
+CONE6 = %00011000
+CONE7 = %00011000         ; point (top)
+SKULL0 = %00000000
+SKULL1 = %00000000
+SKULL2 = %00111100
+SKULL3 = %01111110
+SKULL4 = %11100111         ; eyes
+SKULL5 = %10111101
+SKULL6 = %01111110
+SKULL7 = %00111100         ; top
 
-; Cone (gold) - narrow top widening to a base. Bottom row first.
-; Bit 7 (leftmost column) is always blank so the entity is invisible at
-; the wrap position (entX=159), hiding the respawn type change.
-ConeSprite
-	.byte %00000000
-	.byte %00000000
-	.byte %11111111         ; wide base
-	.byte %01000010
-	.byte %01111110
-	.byte %00100100
-	.byte %00011000
-	.byte %00011000         ; point (top)
-
-; Skull (red) - rounded blob with an eye gap. Bottom row first.
-SkullSprite
-	.byte %00000000
-	.byte %00000000
-	.byte %00111100
-	.byte %01111110
-	.byte %11100111         ; eyes
-	.byte %10111101
-	.byte %01111110
-	.byte %00111100         ; top
+	MAC CONE_ROWS            ; {1} = left-shift amount (asl); 0 = base art
+	.byte (CONE0<<{1})&$FF,(CONE1<<{1})&$FF,(CONE2<<{1})&$FF,(CONE3<<{1})&$FF
+	.byte (CONE4<<{1})&$FF,(CONE5<<{1})&$FF,(CONE6<<{1})&$FF,(CONE7<<{1})&$FF
+	ENDM
+	MAC SKULL_ROWS
+	.byte (SKULL0<<{1})&$FF,(SKULL1<<{1})&$FF,(SKULL2<<{1})&$FF,(SKULL3<<{1})&$FF
+	.byte (SKULL4<<{1})&$FF,(SKULL5<<{1})&$FF,(SKULL6<<{1})&$FF,(SKULL7<<{1})&$FF
+	ENDM
+	; (ZeroSprite / ConeSprite / SkullSprite base art + the slide tables all live
+	;  together in page f5 -- see the block after JumpTabM0.)
 
 ; Entity lookups indexed by entType (0 none, 1 cone, 2 skull)
 EntColorTable
 	.byte $00, COL_CONE, COL_SKULL
 EntSprLo
 	.byte <ZeroSprite, <ConeSprite, <SkullSprite
+; base low byte of each type's slide-shift table (indexed by entType); the
+; sliding sprite = SlideBaseLo[type] + (entSlide-1)*8. Type 0 never slides.
+SlideBaseLo
+	.byte $00, <ConeSlide, <SkullSlide
 ; Respawn type roll, indexed by (rng & 3): 50/50 cone / skull
 EntTypeRoll
 	.byte ENT_CONE, ENT_CONE, ENT_SKULL, ENT_SKULL
@@ -1005,6 +1093,38 @@ pM0_150
 JumpTabM0
 	.byte <pM0_3, <pM0_15, <pM0_30, <pM0_45, <pM0_60, <pM0_75
 	.byte <pM0_90, <pM0_105, <pM0_120, <pM0_135, <pM0_150
+
+;-------------------------------------------------------------
+; ---- Entity sprites + edge-slide shift tables (all page f5) ----
+; Base art (shift 0) and the asl 1..7 slide frames live together so a single
+; high byte (>ZeroSprite) covers every entity draw. Generated from the CONEn/
+; SKULLn row symbols so the slide frames track the art.
+ZeroSprite
+	.byte 0,0,0,0,0,0,0,0
+ConeSprite
+	CONE_ROWS 0
+SkullSprite
+	SKULL_ROWS 0
+; Slide frames: each entity's bitmap pre-shifted left (asl) 1..7; the frame for
+; shift N lives at <table> + (N-1)*8. Used for BOTH edges: left slide-out draws
+; them directly; right slide-in draws them with REFP1=1 (the sprites are
+; left/right symmetric, so the reflect is invisible).
+ConeSlide
+	CONE_ROWS 1
+	CONE_ROWS 2
+	CONE_ROWS 3
+	CONE_ROWS 4
+	CONE_ROWS 5
+	CONE_ROWS 6
+	CONE_ROWS 7
+SkullSlide
+	SKULL_ROWS 1
+	SKULL_ROWS 2
+	SKULL_ROWS 3
+	SKULL_ROWS 4
+	SKULL_ROWS 5
+	SKULL_ROWS 6
+	SKULL_ROWS 7
 
 ;-------------------------------------------------------------
 ; Player-1 (GRP1) cycle-74 strobe table. Placed at $f600 so its
