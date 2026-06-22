@@ -330,6 +330,11 @@ BandLoop
 	lda #>ZeroSprite
 	sta entPtr+1
 
+	; 2-line top air pad: drops the sprite within the band so its feet land on
+	; the platform below. (GRP0/GRP1 are 0 here from the previous band's clear.)
+	sta WSYNC
+	sta WSYNC
+
 	; sprite window: each body row (7..2) is drawn on TWO scanlines so the
 	; player / entity / cone render at 2x height from the same 8-byte data
 	; (the 2600 has no vertical stretch -- you just hold GRPx for 2 lines).
@@ -346,30 +351,28 @@ BandLoop
 	cpy #1
 	bne .sprLoop            ; rows 7..2 (the body), each twice = 12 lines
 
-	; two blank foot rows. Clear GRP0/GRP1 AND their VDEL "old" latches: a write
-	; to GRP1 refreshes GRP0's old latch and vice-versa (true even with VDELP=0),
-	; so a double sta-pair is needed. Otherwise the entity's last body row lingers
-	; in GRP1's old latch and bleeds into the score's top row next frame, where
-	; VDELP1=1 displays it. (The old 8-row loop cleared both latches by drawing
-	; its two blank bottom rows; this doubled loop must do it explicitly.)
-	sta WSYNC
-	lda #0
-	sta GRP0
-	sta GRP1
-	sta GRP0
-	sta GRP1
-	sta WSYNC
-
-	; prepare platform rows: missile = background (so it shows as a gap),
-	; enable the gap if this floor has one (floor 5 has none).
+	; Still on the last body line (row 2 = feet). After the beam has drawn the
+	; player (~pixel 22), recolour the missile to background and enable the gap:
+	; it stays invisible on this background line, but is then ready CLIP-FREE for
+	; the first green line below -- so the gap shows full-height and the feet sit
+	; directly on the platform (no blank foot row, no float).
+	SLEEP 24                ; wait past the player sprite before recolouring P0
 	lda #COL_BG
 	sta COLUP0
 	ldy curFloor
 	lda GapOnTable,y
 	sta ENAM0
 
-	; green top rows
+	; green top rows. In green line 1's HBLANK (before pixel 0) clear GRP0/GRP1
+	; AND both VDEL "old" latches (double sta-pair: a GRP1 write refreshes GRP0's
+	; old latch and vice-versa) so the feet don't bleed onto the platform and no
+	; stale entity row reaches the score next frame (where VDELP1=1 displays it).
 	sta WSYNC
+	lda #0
+	sta GRP0
+	sta GRP1
+	sta GRP0
+	sta GRP1
 	lda #COL_GREEN
 	sta COLUPF
 	ldx #BAND_GREEN-1

@@ -602,5 +602,10 @@ materially steered the implementation. Recording the key interventions:
   short blank-foot left the entity's last body row in `GRP1`'s VDEL *old* latch, which the score
   displayed on its top row next frame (`VDELP1=1`). Fixed with the reference's full double-pair
   `GRP0/GRP1` clear in the foot rows.
+- **Asked for the sprites to touch the platforms** instead of floating. Moved the two blank rows
+  from below the sprite (the float) to a top air pad, dropped the feet onto the green, and kept
+  the band at 30 lines. The gap is now prepped on the last body line (after the player draws) so
+  it stays clip-free, and the sprite + VDEL-latch clear happens in the green's HBLANK before
+  pixel 0 — no foot row needed.
 - **Process: keep the `.md` docs updated between milestones**, with detailed implementation
   writeups — and maintain this steering log.
