@@ -130,11 +130,38 @@ Proposed layout (refine during implementation):
   skull → game over (freeze + red tint + restart on fire).
 - Score HUD display is M5; for now the cone's effect is it disappearing, the skull's is game over.
 
-### M5 — HUD, power-up, game-over/reset  🟡 score + GAME OVER + HI done; power-up pending
+### M5 — HUD: score + GAME OVER + HI score  ✅ DONE
 - ✅ Score shown as `__nnnn` (4 digits) via the 48-px glyph kernel.
-- ✅ GAME OVER: alternates "GAMEOVER" text and "HInnnn" (high score) on the red freeze.
+- ✅ GAME OVER: alternates "GAMEOVER" text and "HInnnn" (high score), 120 frames each.
 - ✅ HI-score tracked (max on death), persists across restarts via a soft-reset (NewGame).
-- ⬜ Power-up that clears skulls.
+
+### M6 — Spawn spacing + score-based speed-up  ⬜ NEXT
+- (a) **Better object randomisation.** Today entities respawn the instant they wrap, so a fresh
+  one can reappear almost immediately. Add a randomised off-screen delay between an entity
+  leaving and the next entering (per floor), so spacing varies and they don't pop back in at
+  once. (Tune the LFSR usage / add a per-floor respawn countdown.)
+- (b) **Speed up with score, at sub-pixel resolution.** Scroll speed should increase as the
+  score climbs, in **fractional pixels** for smoothness, kept performant with **shifts** (no
+  multiply/divide). Plan: a fixed-point scroll accumulator per object (e.g. 8.8 — integer +
+  fraction byte); each frame add a `speed` increment; move by the integer carry. Derive `speed`
+  from the score via shifts (e.g. base + (score >> n)). Applies to gaps and entities together.
+- Verify: entities are spaced out (no instant re-pop); scroll visibly accelerates as score rises,
+  still smooth (no judder), no roll.
+
+### M7 — Object animations  ⬜
+- Animated frames for the entities (the JS skull cycles 4 frames; cone could shimmer). Drive
+  from a frame counter; select the GRP1 bitmap per animation step.
+- Depends on / pairs with **sprite masking for scrolling** (below).
+
+### M8 — Power-up  ⬜
+- The power-up item that clears all skulls on screen (JS: converts skulls → cones). New entity
+  type + collision effect.
+
+### Cross-cutting — sprite masking for edge scrolling
+- The mod-160 wrap means objects can't slide *off* an edge; currently entities pop at the left
+  and the gap-zone cap (`ENT_WRAP=152`) keeps the 8px object out of the right wrap zone. For a
+  gradual slide-in/out, mask the sprite columns that would wrap (per-column AND-mask indexed by
+  edge distance). Needed for clean entry/exit and likely while adding animations (M7).
 
 ## 5. Example References
 - Horizontal positioning: `examples/example.asm` (`SetHorizPos`), `examples/punchout.asm`
