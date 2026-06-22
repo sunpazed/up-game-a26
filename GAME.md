@@ -582,5 +582,25 @@ materially steered the implementation. Recording the key interventions:
   only by being background-coloured. This pinned down the real cause after several near-misses,
   leading to the `ENT_WRAP=152` fix. Proposed sprite-masking as the alternative (kept in reserve
   for gradual slide-in).
+- **Re-flagged the player-vs-gap fall position.** Drove a measurement-first fix: a diagnostic
+  build pinned every gap at a known x so the gap-vs-player offset could be read straight off a
+  Stella snapshot, confirming the two coordinate systems align to ~1px. The fall trigger was a
+  window-tuning issue (firing while the hole was still arriving), not a coordinate mismatch.
+  User then hand-tuned the final window (`FALL_LO=14, FALL_HI=18`).
+- **Directed thicker platforms** (+1px green, +2px grey), with the air pad shrunk to keep each
+  band at exactly 30 lines.
+- **Asked for 2× sprite height "without increasing pixel data — hardware stretching?", then
+  proposed "write the sprite every second line".** Correct: the 2600 has no vertical stretch, so
+  you hold `GRPx` for 2 scanlines. Also asked **"can the positioning occur within the platform
+  lines to save white space?"** — which led to the key realization that the cycle-74 positioning
+  lines *already render as background* (gap off, sprites blank) and thus double as the air pad.
+  Removing the dedicated pad freed exactly the lines to double the 6 body rows (→12 lines), with
+  no change to positioning or platforms.
+- **Hypothesised the score artifact was a `$100` page-cross breaking the cycle-perfect DrawDigits
+  timing.** The page-cross itself was disproven (bigLoop `$f824–$f84b`, in-page; font reads stay
+  in `$f7xx`), but the question sent me back to find the real cause: the doubled sprite loop's
+  short blank-foot left the entity's last body row in `GRP1`'s VDEL *old* latch, which the score
+  displayed on its top row next frame (`VDELP1=1`). Fixed with the reference's full double-pair
+  `GRP0/GRP1` clear in the foot rows.
 - **Process: keep the `.md` docs updated between milestones**, with detailed implementation
   writeups — and maintain this steering log.

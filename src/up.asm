@@ -43,11 +43,13 @@ PLAYER_X     = 10       ; fixed horizontal position of the player
 
 HUD_LINES    = 12
 NUM_BANDS    = 6
-BAND_PAD     = 9        ; air pad rows. band = setbg 1 + missile pos 2 + entity
-                        ;   pos 2 + pad 9 + sprite 8 + green 4 + grey 4 = 30
-SPRITE_H     = 8
-BAND_GREEN   = 4
-BAND_GREY    = 4
+SPRITE_H     = 8        ; sprite data rows. band = setbg 1 + gap pos 2 + entity
+                        ;   pos 2 + sprite 14 (6 body rows x2 + 2 blank foot) +
+                        ;   green 5 + grey 6 = 30. No dedicated air pad: the
+                        ;   positioning lines above already show as background
+                        ;   (gap + sprites are off there) and double as the air.
+BAND_GREEN   = 5
+BAND_GREY    = 6
 
 GAP_WIDTH    = 8        ; missile gap width (NUSIZ0 = $30)
 GAP_WRAP     = 159      ; respawn x at the right edge (cycle-74 reaches 0..159)
@@ -328,23 +330,35 @@ BandLoop
 	lda #>ZeroSprite
 	sta entPtr+1
 
-	ldx #BAND_PAD
-.padLoop
-	sta WSYNC
-	dex
-	bne .padLoop
-
-	; sprite window (8 lines): player (GRP0) + entity (GRP1), top row first
-	ldy #SPRITE_H-1
+	; sprite window: each body row (7..2) is drawn on TWO scanlines so the
+	; player / entity / cone render at 2x height from the same 8-byte data
+	; (the 2600 has no vertical stretch -- you just hold GRPx for 2 lines).
+	; No pad loop: the positioning lines above already render as background.
+	ldy #SPRITE_H-1         ; 7
 .sprLoop
-	sta WSYNC
+	sta WSYNC               ; row y, 1st scanline
 	lda (sprPtr),y
 	sta GRP0
 	lda (entPtr),y
 	sta GRP1
+	sta WSYNC               ; row y, 2nd scanline (GRP0/GRP1 hold => 2x tall)
 	dey
-	bpl .sprLoop
-	; GRP0/GRP1 are now 0 (sprite offsets 0-1 are blank)
+	cpy #1
+	bne .sprLoop            ; rows 7..2 (the body), each twice = 12 lines
+
+	; two blank foot rows. Clear GRP0/GRP1 AND their VDEL "old" latches: a write
+	; to GRP1 refreshes GRP0's old latch and vice-versa (true even with VDELP=0),
+	; so a double sta-pair is needed. Otherwise the entity's last body row lingers
+	; in GRP1's old latch and bleeds into the score's top row next frame, where
+	; VDELP1=1 displays it. (The old 8-row loop cleared both latches by drawing
+	; its two blank bottom rows; this doubled loop must do it explicitly.)
+	sta WSYNC
+	lda #0
+	sta GRP0
+	sta GRP1
+	sta GRP0
+	sta GRP1
+	sta WSYNC
 
 	; prepare platform rows: missile = background (so it shows as a gap),
 	; enable the gap if this floor has one (floor 5 has none).
