@@ -123,11 +123,12 @@ Proposed layout (refine during implementation):
 - `PLAYER_X = 10` (final). Fall window `[FALL_LO=12 .. FALL_HI=20]` — see note below if the
   drop timing wants centring on the new player x.
 
-### M4 — Entities (cones + skulls)  🟡 rendering DONE (verified), collision next
+### M4 — Entities (cones + skulls) + collision  ✅ IMPLEMENTED (pending emu check)
 - ✅ GRP1 per band as cone (gold) or skull (red), one per platform, randomly placed,
-  scrolling right-to-left and respawning with a random type. Verified clean in Stella
-  (no wrap ghost / type flash after the mod-160 `ENT_WRAP=152` fix).
-- ⬜ Collision (player vs GRP1): cone → score++, skull → game over. (next sub-step)
+  scrolling right-to-left and respawning with a random type. (Verified clean in Stella.)
+- ✅ Collision (player vs entity on the player's floor): cone → +1 BCD score + consumed;
+  skull → game over (freeze + red tint + restart on fire).
+- Score HUD display is M5; for now the cone's effect is it disappearing, the skull's is game over.
 
 ### M5 — HUD, power-up, game-over/reset
 - **6-digit BCD score** in the dedicated top HUD region, 48-px digit path
@@ -388,8 +389,25 @@ green 4 + grey 4`. The end-of-band loop uses `jmp BandLoop` (the body now exceed
 
 **RAM added:** `entType[6]`, `entX[6]`, `entQuick[6]`, `entJmpLo[6]`, `entPtr[2]`, `rng`.
 
-**Not yet done:** collision (cone → +score, skull → game over). That + the HUD/score is the
-next step (into M5).
+**Collision + scoring (`CheckCollision`, overscan) — hardware collision.** The player is GRP0
+and entities are GRP1, so the TIA's `CXPPMM` bit 7 (P0–P1) flags a real pixel overlap. This is
+calibration-independent — important because the player (`PosStd`) and entities (cycle-74) use
+different positioners, so a position-compare window was unreliable (an early version missed
+overlaps the eye could clearly see). `CXCLR` is strobed each frame in VBLANK; `CheckCollision`
+reads `CXPPMM` in overscan. Because GRP0 is only drawn on the player's own floor, a P0–P1 hit can
+only be the entity on `playerFloor`, so the type is read from `entType[playerFloor]` —
+**cone**: `+1` to the 3-byte BCD `scoreBCD` (decimal-mode add with carry) and consumed
+(`entType=0`); **skull**: `gameState=1` and `COLUBK` → `COL_GAMEOVER` (red).
+`CheckCollision` runs *before* `ReadInput`/`UpdateWorld` so `playerFloor` still matches the frame
+that was just rendered (and latched the collision).
+
+**Game-over loop.** While `gameState!=0` the overscan skips `ReadInput`/`UpdateWorld` (world
+frozen, but the precompute + kernel still run so the picture is stable) and calls `CheckRestart`,
+which restarts the game (`jmp Reset`) on a fresh fire press. `Reset` restores `COL_BG`, zeroes
+RAM (so score/state reset), and re-inits. The score isn't visible yet (HUD is M5) — for now the
+cone's visible effect is disappearing on pickup, the skull's is the red freeze.
+
+**RAM added:** `gameState`, `scoreBCD[3]`.
 
 ## 9. Steering Log (user-directed decisions)
 

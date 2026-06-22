@@ -64,6 +64,8 @@ ENT_WRAP     = 152      ; respawn x. Kept <=152 so the 8px GRP1 object never
                         ; mod-160 wrap part of the sprite to the LEFT edge,
                         ; flashing the freshly-rerolled type at pixel 0.
 
+COL_GAMEOVER = $42      ; red background tint while game over
+
 ;-------------------------------------------------------------
 ; RAM
 ;-------------------------------------------------------------
@@ -88,6 +90,8 @@ entQuick        ds 6    ; per-floor precomputed quickPos for the entity (GRP1)
 entJmpLo        ds 6    ; per-floor precomputed strobe-table entry (low byte)
 entPtr          ds 2    ; pointer to the current band's entity sprite
 rng             ds 1    ; PRNG state (LFSR)
+gameState       ds 1    ; 0 = playing, 1 = game over
+scoreBCD        ds 3    ; 6-digit BCD score (shown by the M5 HUD)
 
 ;-------------------------------------------------------------
 ; ROM
@@ -184,7 +188,8 @@ Reset
 NextFrame
 	lda #2
 	sta VBLANK
-	VERTICAL_SYNC           ; 3 vsync lines
+	VERTICAL_SYNC           ; 3 vsync lines (leaves A=0)
+	sta CXCLR               ; clear collision latches for this frame
 
 	; 36 lines of VBLANK
 	ldx #36
@@ -318,8 +323,19 @@ BandLoop
 	lda #35
 	sta TIM64T
 
+	lda gameState
+	bne .gsFrozen
+	; CheckCollision must run BEFORE input/update: CXPPMM reflects the
+	; frame just rendered, where playerFloor still matches.
+	jsr CheckCollision
+	lda gameState
+	bne .gsAfter            ; just died this frame -> skip further updates
 	jsr ReadInput
 	jsr UpdateWorld
+	jmp .gsAfter
+.gsFrozen
+	jsr CheckRestart        ; world frozen; fresh fire press restarts
+.gsAfter
 
 	; Precompute each gap's quickPos + strobe-table entry (in overscan),
 	; so the visible kernel positions in one fixed-time scanline.
@@ -487,6 +503,60 @@ UpdateWorld
 .entNext
 	dex
 	bpl .entScroll
+	rts
+
+;-------------------------------------------------------------
+; CheckCollision - player vs the entity on the player's floor.
+;   cone  -> +1 to the BCD score, entity consumed.
+;   skull -> game over (freeze + red background).
+;-------------------------------------------------------------
+CheckCollision
+	lda CXPPMM
+	bpl .ccDone             ; bit7 (P0-P1) clear -> player didn't touch an entity
+	; player's GRP0 only draws on its own floor, so a P0-P1 hit is the
+	; entity on playerFloor. Act on its type.
+	ldx playerFloor
+	lda entType,x
+	beq .ccDone             ; guard: no entity here
+	cmp #ENT_SKULL
+	beq .ccSkull
+	; cone collected: +1 (BCD), then consume it
+	sed
+	lda scoreBCD+2
+	clc
+	adc #1
+	sta scoreBCD+2
+	lda scoreBCD+1
+	adc #0
+	sta scoreBCD+1
+	lda scoreBCD+0
+	adc #0
+	sta scoreBCD+0
+	cld
+	lda #0
+	sta entType,x           ; cone consumed (respawns on its next wrap)
+	rts
+.ccSkull
+	lda #1
+	sta gameState
+	lda #COL_GAMEOVER
+	sta COLUBK              ; red tint; Reset restores COL_BG on restart
+.ccDone
+	rts
+
+;-------------------------------------------------------------
+; CheckRestart - during game over, a fresh fire press restarts.
+;-------------------------------------------------------------
+CheckRestart
+	ldx #0
+	lda INPT4
+	bmi .crStore            ; not pressed
+	ldx #1
+	lda btnPrev
+	bne .crStore            ; held since last frame -> no edge
+	jmp Reset               ; fresh press -> restart the game
+.crStore
+	stx btnPrev
 	rts
 
 ;-------------------------------------------------------------
