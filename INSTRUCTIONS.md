@@ -1,7 +1,7 @@
 
 ## About
 
-Your task is to build an Atari 2600 game based on a javascript game. The 2600 game should be complete and playable as a 4k cart. 
+Your task is to build an Atari 2600 game based on a javascript game (https://abagames.github.io/crisp-game-lib-11-games/?up1way). The 2600 game should be complete and playable as a 4k cart. 
 
 ---
 
