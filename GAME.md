@@ -638,5 +638,14 @@ materially steered the implementation. Recording the key interventions:
   floor and the first button press jumps them *into* the fixed object on the floor above. Fix:
   start with **empty platforms** — every entity begins hidden and slides in from the right on a
   staggered delay (`InitDelayTab`), so nothing is ever parked in the jump path.
+- **Asked for 4 sound effects** (jump rising / drop falling / cone coin / death noise). Added a
+  small frame-timed SFX engine on TIA channel 0 (`UpdateSound`, `sfxId`/`sfxTimer`), triggered at
+  the jump/fall/cone/death sites. (Relocating `UpdateSound`+`GetDigitPtrs` to the trailing ROM gap
+  after `DrawDigits` kept the cramped `$f000-$f500` code region under the `PosTblM0` org.)
+- **Noticed the screen rolling on cone pickup and correctly suspected the scroll/timing.** Root
+  cause: the per-pixel `.scrollStep` loop did up to 4x work at top speed and overran the overscan
+  timer (worst on the heavier cone-pickup frame). Fix: rewrote the scroll as **O(1)** (subtract
+  `scrollStep` once for gaps/entities/slide/respawn counters) so overscan cost is flat regardless
+  of speed. User then tuned `SPEED_INC=2`, `SPEED_MAX=96`.
 - **Process: keep the `.md` docs updated between milestones**, with detailed implementation
   writeups — and maintain this steering log.

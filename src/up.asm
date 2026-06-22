@@ -74,8 +74,8 @@ ENT_DEFER      = 16     ;   (it would overlap the spawn x); recheck after this m
 ; >> 5 whole pixels; the low 5 bits carry as the fraction. Keep SPEED_MAX <= 224
 ; so scrollFrac (<=31) + scrollSpeed never overflows 8 bits.
 SPEED_BASE   = 32       ; base speed (= 1.0 px/frame)
-SPEED_INC    = 1        ; per cone (= +0.125 px/frame; ~24 cones to top speed)
-SPEED_MAX    = 128      ; cap (= 4.0 px/frame; <= the fall window so falls hold)
+SPEED_INC    = 2        ; per cone (= +0.125 px/frame; ~24 cones to top speed)
+SPEED_MAX    = 96       ; cap (= 4.0 px/frame; <= the fall window so falls hold)
 
 ; Player run-cycle animation. The frame swaps every animTimer frames, and the
 ; interval shortens with scroll speed: interval = ANIM_BASE - (scrollSpeed >> 3).
@@ -89,6 +89,27 @@ THREE_COPIES = %011     ; NUSIZ: 3 close copies (P0 + P1 interleaved = 6 digits)
 SCORE_COL    = $00      ; black digits on the grey background
 SCORE_SLEEP  = 36       ; positions the score block (RESP0/RESP1 timing)
 PLAYER_SLEEP = 23       ; re-strobes the player P0 near PLAYER_X after the HUD
+
+; Sound effects (TIA channel 0). A frame-timed engine plays one SFX at a time:
+; sfxId picks the sound, sfxTimer counts its remaining frames (see UpdateSound).
+SFX_JUMP     = 1        ; rising tone
+SFX_DROP     = 2        ; falling tone
+SFX_CONE     = 3        ; two-note coin pickup
+SFX_DEATH    = 4        ; two white-noise bursts
+JUMP_DUR     = 12
+DROP_DUR     = 12
+CONE_DUR     = 16
+DEATH_DUR    = 20
+SFX_TONE     = $04      ; pure-tone waveform (AUDC0)
+SFX_NOISE    = $08      ; white-noise waveform (AUDC0)
+SFX_VOL      = $0A      ; SFX volume (AUDV0, 0-15)
+
+	MAC TRIGGER_SFX         ; {1} = SFX id, {2} = duration in frames
+	lda #{1}
+	sta sfxId
+	lda #{2}
+	sta sfxTimer
+	ENDM
 
 ;-------------------------------------------------------------
 ; RAM
@@ -119,6 +140,8 @@ entJmpLo        ds 6    ; per-floor precomputed strobe-table entry (low byte)
 entPtr          ds 2    ; pointer to the current band's entity sprite
 rng             ds 1    ; PRNG state (LFSR)
 frameCnt        ds 1    ; free-running frame counter (never reset; RNG reseed)
+sfxId           ds 1    ; sound effect currently playing (0 = none)
+sfxTimer        ds 1    ; frames left in the current sound effect
 gameState       ds 1    ; 0 = playing, 1 = game over
 scoreBCD        ds 3    ; BCD score (low 4 digits shown)
 hiScore         ds 2    ; 4-digit BCD high score (persists across games)
@@ -170,6 +193,10 @@ Reset
 	lda #1
 	sta rng                 ; PRNG seed (set once; advances across games)
 
+	lda #0
+	sta AUDV0               ; silence both audio channels at boot
+	sta AUDV1
+
 ;-------------------------------------------------------------
 ; NewGame - (re)start a round. Reached from Reset and from a game-over
 ; restart. Resets all gameplay state but NOT hiScore (or rng).
@@ -184,6 +211,7 @@ NewGame
 	sta btnPrev
 	sta gameState
 	sta goCnt
+	sta sfxTimer            ; stop any leftover sound (e.g. the death sting)
 	sta scoreBCD+0
 	sta scoreBCD+1
 	sta scoreBCD+2
@@ -454,6 +482,7 @@ BandLoop
 .gsFrozen
 	jsr CheckRestart        ; world frozen; fresh fire press restarts
 .gsAfter
+	jsr UpdateSound         ; advance SFX every frame (incl. the game-over freeze)
 	; game-over text cycle: 240-frame period (120 GAMEOVER + 120 HInnnn)
 	inc goCnt
 	lda goCnt
@@ -610,6 +639,7 @@ ReadInput
 	lda playerFloor
 	beq .store              ; already at top tier
 	dec playerFloor         ; jump up one tier
+	TRIGGER_SFX SFX_JUMP, JUMP_DUR
 .store
 	stx btnPrev
 	rts
@@ -662,59 +692,81 @@ UpdateWorld
 	lsr                     ; whole pixels this frame = total >> 5
 	sta scrollStep
 
-.scrollStep
-	; --- scroll gaps (floors 0..4 ; floor 5 has none) ---
+	; Everything below advances by scrollStep in ONE pass (O(1)) rather than a
+	; per-pixel loop, so the overscan cost stays flat as the speed ramps -- the
+	; per-pixel loop was up to 4x work at top speed and overran the overscan
+	; timer (causing the screen to roll, worst on the heavier cone-pickup frame).
+
+	; --- scroll gaps (floors 0..4): gapX -= step, wrap <=0 back to GAP_WRAP ---
 	ldx #4
 .gapLoop
-	dec gapX,x
-	bne .gapNext            ; reached 0 => wrap to the right
-	lda #GAP_WRAP
+	lda gapX,x
+	sec
+	sbc scrollStep
+	bcc .gapWrap            ; underflowed past 0 -> wrap in from the right
+	bne .gapStore           ; still > 0
+.gapWrap                    ; A is 0 or the negative remainder; +GAP_WRAP re-enters
+	clc
+	adc #GAP_WRAP
+.gapStore
 	sta gapX,x
-.gapNext
 	dex
 	bpl .gapLoop
 
-	; --- entities: scroll, hide for a random delay, re-enter ---
+	; --- entities: advance position / slide / respawn wait, each by scrollStep ---
 	ldx #5
 .entLoop
 	lda entType,x
-	beq .entWaiting         ; type 0 = hidden, waiting to respawn
+	beq .entWaiting         ; hidden -> count down the respawn delay
 	lda entSlide,x
 	beq .entScroll          ; 0 -> normal scroll
 	bmi .entSlideIn         ; $80|N -> sliding IN from the right edge
-	; 1..7 -> sliding OUT the left edge (shift grows, then hide)
-	inc entSlide,x          ; advance the shift (per scroll step => speed-linked)
-	lda entSlide,x
+	; 1..7 -> sliding OUT the left edge: grow the shift, hide once fully off
+	clc
+	adc scrollStep
 	cmp #8
-	bcc .entNext            ; 1..7 still partly on-screen
+	bcc .entSlideStore      ; 1..7 still partly on-screen
 	lda #0
 	sta entType,x           ; fully off the left edge -> hide + arm respawn
 	sta entSlide,x
 	jsr SetRespawnDelay
 	jmp .entNext
 .entSlideIn
-	dec entSlide,x          ; $80|N -> $80|(N-1): grow in from the right edge
-	lda entSlide,x
-	cmp #$80
-	bne .entNext            ; still entering ($80|7 .. $80|1)
+	sec
+	sbc scrollStep          ; $80|N -> shrink N toward $80 (grow in from the right)
+	cmp #$81
+	bcs .entSlideStore      ; still >= $81 -> entering
 	lda #0
-	sta entSlide,x          ; N=0 -> fully in; normal scroll begins next step
+	sta entSlide,x          ; reached $80 (or past) -> fully in, normal scroll
+	jmp .entNext
+.entSlideStore
+	sta entSlide,x
 	jmp .entNext
 .entScroll
-	; normal scroll until the entity reaches the left edge (entX = 0)
 	lda entX,x
-	beq .entStartSlide
-	dec entX,x
+	sec
+	sbc scrollStep
+	bcc .entEdge            ; passed the left edge
+	beq .entEdge            ; reached x = 0
+	sta entX,x
 	jmp .entNext
-.entStartSlide
-	inc entSlide,x          ; 0 -> 1: hold at x=0, kernel now draws asl x1
+.entEdge
+	lda #0
+	sta entX,x              ; clamp at the left edge
+	lda #1
+	sta entSlide,x          ; begin slide-out (kernel draws asl x1 at x=0)
 	jmp .entNext
 .entWaiting
-	dec entDelay,x
-	bne .entNext
-	; delay elapsed -> respawn, but not over this floor's gap. If the gap
-	; is in the spawn zone, wait a little and recheck (they scroll at the
-	; same speed, so clearing them at spawn keeps them apart all pass).
+	lda entDelay,x
+	sec
+	sbc scrollStep          ; advance the wait by this frame's step (speed-linked)
+	bcc .entSpawn
+	beq .entSpawn
+	sta entDelay,x
+	jmp .entNext
+.entSpawn
+	; delay elapsed -> respawn, but not over this floor's gap. If the gap is in
+	; the spawn zone, wait a little and recheck (same speed keeps them apart).
 	lda gapX,x
 	cmp #GAP_SPAWN_CLEAR
 	bcc .doSpawn
@@ -735,9 +787,6 @@ UpdateWorld
 	dex
 	bpl .entLoop
 
-	dec scrollStep
-	bne .scrollStep         ; run the scroll 1 or 2 times this frame
-
 	; --- fall-through (once per frame): gap under the player? ---
 	lda playerFloor
 	cmp #5
@@ -749,6 +798,7 @@ UpdateWorld
 	cmp #FALL_LO
 	bcc .noFall             ; gap is left of the player
 	inc playerFloor         ; fall down one tier
+	TRIGGER_SFX SFX_DROP, DROP_DUR
 .noFall
 	rts
 
@@ -778,6 +828,7 @@ CheckCollision
 	beq .ccDone             ; guard: no entity here
 	cmp #ENT_SKULL
 	beq .ccSkull
+	TRIGGER_SFX SFX_CONE, CONE_DUR
 	; cone collected: +1 (BCD). GetDigitPtrs shows scoreBCD+2 as the
 	; leftmost (most-significant) digits, so the +1 must land on the
 	; least-significant byte scoreBCD+0 and carry up toward +2.
@@ -807,6 +858,7 @@ CheckCollision
 .ccSkull
 	lda #1
 	sta gameState
+	TRIGGER_SFX SFX_DEATH, DEATH_DUR
 	lda #COL_GAMEOVER
 	sta COLUBK              ; red tint; NewGame restores COL_BG on restart
 	; high score = max(hiScore, score) over the low 4 digits
@@ -867,94 +919,6 @@ CalcQuickPos
 	asl
 	clc
 	adc DelayTab,y
-	rts
-
-;-------------------------------------------------------------
-; GetDigitPtrs - build the 6 font pointers (Digit0..Digit5) from the
-;   3-byte BCD score. Each nibble * 8 = offset into FontTable.
-;   (After examples/6-digit-score.asm.)
-;-------------------------------------------------------------
-GetDigitPtrs
-	lda gameState
-	bne .goText
-	; --- playing: score "__nnnn" (blank leftmost two, low 4 BCD digits) ---
-	lda #<BlankGlyph
-	sta Digit0+0
-	sta Digit0+2
-	ldx #4
-	ldy #1
-.gdpLoop
-	lda scoreBCD,y
-	and #$f0                ; high nibble * 16
-	lsr                     ; -> * 8
-	sta Digit0,x
-	inx
-	inx
-	lda scoreBCD,y
-	and #$0f                ; low nibble
-	asl
-	asl
-	asl                     ; * 8
-	sta Digit0,x
-	inx
-	inx
-	dey
-	bpl .gdpLoop
-	jmp .setHi
-.goText
-	; --- game over: alternate "GAMEOVER" and "HInnnn" every 120 frames ---
-	lda goCnt
-	cmp #120
-	bcs .goHi               ; goCnt 120-239 -> HInnnn
-	; "GAMEOVER" packed across the 6 glyph slots
-	lda #<GameOverGlyphs
-	sta Digit0+0
-	clc
-	adc #8
-	sta Digit0+2
-	adc #8
-	sta Digit0+4
-	adc #8
-	sta Digit0+6
-	adc #8
-	sta Digit0+8
-	adc #8
-	sta Digit0+10
-	jmp .setHi
-.goHi
-	; "HI" + the 4-digit high score
-	lda #<LetterH
-	sta Digit0+0
-	lda #<LetterI
-	sta Digit0+2
-	ldx #4
-	ldy #1
-.goHiLoop
-	lda hiScore,y
-	and #$f0
-	lsr
-	sta Digit0,x
-	inx
-	inx
-	lda hiScore,y
-	and #$0f
-	asl
-	asl
-	asl
-	sta Digit0,x
-	inx
-	inx
-	dey
-	bpl .goHiLoop
-.setHi
-	; every glyph lives in the FontTable page, so all hi bytes are the same
-	lda #>FontTable
-	sta Digit0+1
-	sta Digit0+3
-	sta Digit0+5
-	sta Digit0+7
-	sta Digit0+9
-	sta Digit0+11
 	rts
 
 ;-------------------------------------------------------------
@@ -1241,6 +1205,182 @@ DrawDigits
 	sta GRP0
 	sta GRP1
 	sta WSYNC               ; align: DrawDigits is exactly 9 scanlines
+	rts
+
+;-------------------------------------------------------------
+; GetDigitPtrs - build the 6 font pointers (Digit0..Digit5) from the
+;   3-byte BCD score. Each nibble * 8 = offset into FontTable.
+;   (After examples/6-digit-score.asm.) Lives here in the trailing gap to
+;   keep the cramped $f000-$f500 code region under the PosTblM0 org.
+;-------------------------------------------------------------
+GetDigitPtrs
+	lda gameState
+	bne .goText
+	; --- playing: score "__nnnn" (blank leftmost two, low 4 BCD digits) ---
+	lda #<BlankGlyph
+	sta Digit0+0
+	sta Digit0+2
+	ldx #4
+	ldy #1
+.gdpLoop
+	lda scoreBCD,y
+	and #$f0                ; high nibble * 16
+	lsr                     ; -> * 8
+	sta Digit0,x
+	inx
+	inx
+	lda scoreBCD,y
+	and #$0f                ; low nibble
+	asl
+	asl
+	asl                     ; * 8
+	sta Digit0,x
+	inx
+	inx
+	dey
+	bpl .gdpLoop
+	jmp .setHi
+.goText
+	; --- game over: alternate "GAMEOVER" and "HInnnn" every 120 frames ---
+	lda goCnt
+	cmp #120
+	bcs .goHi               ; goCnt 120-239 -> HInnnn
+	; "GAMEOVER" packed across the 6 glyph slots
+	lda #<GameOverGlyphs
+	sta Digit0+0
+	clc
+	adc #8
+	sta Digit0+2
+	adc #8
+	sta Digit0+4
+	adc #8
+	sta Digit0+6
+	adc #8
+	sta Digit0+8
+	adc #8
+	sta Digit0+10
+	jmp .setHi
+.goHi
+	; "HI" + the 4-digit high score
+	lda #<LetterH
+	sta Digit0+0
+	lda #<LetterI
+	sta Digit0+2
+	ldx #4
+	ldy #1
+.goHiLoop
+	lda hiScore,y
+	and #$f0
+	lsr
+	sta Digit0,x
+	inx
+	inx
+	lda hiScore,y
+	and #$0f
+	asl
+	asl
+	asl
+	sta Digit0,x
+	inx
+	inx
+	dey
+	bpl .goHiLoop
+.setHi
+	; every glyph lives in the FontTable page, so all hi bytes are the same
+	lda #>FontTable
+	sta Digit0+1
+	sta Digit0+3
+	sta Digit0+5
+	sta Digit0+7
+	sta Digit0+9
+	sta Digit0+11
+	rts
+
+;-------------------------------------------------------------
+; UpdateSound - advance the one-shot SFX on channel 0 (called every frame in
+;   all game states, so the death sound keeps playing through the freeze).
+;   sfxTimer counts down; AUDC0/AUDF0/AUDV0 are derived from the id + timer.
+;-------------------------------------------------------------
+UpdateSound
+	lda sfxTimer
+	bne .usPlay
+	rts                     ; idle (already silent)
+.usPlay
+	dec sfxTimer
+	beq .usSilence          ; last frame elapsed -> turn the channel off
+	lda sfxId
+	cmp #SFX_JUMP
+	beq .usJump
+	cmp #SFX_DROP
+	beq .usDrop
+	cmp #SFX_CONE
+	beq .usCone
+	jmp .usDeath
+.usSilence
+	lda #0
+	sta AUDV0
+	rts
+
+.usJump                     ; pure tone, pitch RISES (AUDF falls as timer falls)
+	lda #SFX_TONE
+	sta AUDC0
+	lda sfxTimer
+	clc
+	adc #3
+	sta AUDF0
+	lda #SFX_VOL
+	sta AUDV0
+	rts
+
+.usDrop                     ; pure tone, pitch FALLS (AUDF rises as timer falls)
+	lda #SFX_TONE
+	sta AUDC0
+	lda #DROP_DUR
+	sec
+	sbc sfxTimer
+	sta AUDF0
+	lda #SFX_VOL
+	sta AUDV0
+	rts
+
+.usCone                     ; two-note coin: low note then a higher one
+	lda #SFX_TONE
+	sta AUDC0
+	lda #SFX_VOL
+	sta AUDV0
+	lda sfxTimer
+	cmp #CONE_DUR/2
+	bcs .usConeLo           ; first half -> low note
+	lda #7                  ; second half -> higher note (lower AUDF)
+	sta AUDF0
+	rts
+.usConeLo
+	lda #13
+	sta AUDF0
+	rts
+
+.usDeath                    ; white noise: "tah" burst, gap, "tish" burst
+	lda #SFX_NOISE
+	sta AUDC0
+	lda sfxTimer
+	cmp #13
+	bcs .usDeathTah         ; 13.. -> first (lower) burst
+	cmp #10
+	bcc .usDeathTish        ; ..9  -> second (sharper) burst
+	lda #0                  ; 10..12 -> short gap
+	sta AUDV0
+	rts
+.usDeathTah
+	lda #15
+	sta AUDF0
+	lda #SFX_VOL
+	sta AUDV0
+	rts
+.usDeathTish
+	lda #4
+	sta AUDF0
+	lda #SFX_VOL
+	sta AUDV0
 	rts
 
 ;-------------------------------------------------------------
