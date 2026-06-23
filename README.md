@@ -4,16 +4,16 @@ This project is a DASM Atari 2600 port of the JavaScript game [UP 1 WAY](https:/
 
 ## Authorship
 
-Co-authored with Opus 4.8, it took approximately 1.768M tokens to generate this code. Review `GAME.md` to track the progress of this games development, including the examples and developer steering required to generate a stable graphics kernel and coherant Atari 2600 game.
+Co-authored with Opus 4.8, it took approximately 1.9M tokens to generate this code. Review `GAME.md` to track the progress of this games development, including the examples and developer steering required to generate a stable graphics kernel and coherant Atari 2600 game.
 
 ```
- Total cost:            $206.19
- Total duration (API):  5h 43m 4s
- Total duration (wall): 22h 4m 14s
- Total code changes:    3280 lines added, 1324 lines removed
-   Usage by model:
-       claude-haiku-4-5:  443 input, 11 output, 0 cache read, 0 cache write ($0.0005)
-        claude-opus-4-8:  79.1k input, 1.4m output, 317.3m cache read, 1.8m cache write ($206.19)
+ Total cost:            $266.13
+ Total duration (API):  7h 36m 33s
+ Total duration (wall): 1d 4h 15m
+ Total code changes:    3884 lines added, 1682 lines removed
+ Usage by model:
+     claude-haiku-4-5:  443 input, 11 output, 0 cache read, 0 cache write ($0.0005)
+      claude-opus-4-8:  123.6k input, 1.9m output, 392.5m cache read, 3.4m cache write ($266.13)    
 ```
 
 ## Current Status
@@ -55,18 +55,21 @@ Per-platform repeated kernel (see `INSTRUCTIONS.md` and `GAME.md` for detail):
 
 ```
 VSYNC      3 lines
-VBLANK    36 lines     ; input + state updates
+VBLANK    35 lines     ; input edge + per-band player-pointer precompute (idle cycles)
 visible  192 lines     ; HUD region (12) + 6 platform bands (30 each)
-overscan  30 lines
+overscan  32 lines     ; TIM64T timer; world update + positioning precompute
                        ; total = 262 NTSC scanlines
 ```
 
 - Platforms are the **playfield** held solid full-width; band appearance is driven by
   `COLUPF` swaps during HBLANK (background = invisible / green top / grey underside).
-- The **player** is `GRP0`, drawn only in the band matching its current floor by selecting a
-  sprite pointer per band (no per-scanline branching).
-- Gaps (M3) will use `ENAM0/ENAM1`; entities (M4) will use `GRP1` with per-floor type/color.
-- HUD (M5) is a dedicated 12-line top region rendering a 6-digit BCD score.
+- The **player** is `GRP0`, drawn at an **arbitrary scanline** (M9 vertical glide) via a
+  page-aligned zero-padded sprite + a per-band pointer offset, so it slides smoothly between
+  floors. Two frame buffers (selected by `animFrame`) give the run-cycle animation.
+- Gaps are **Missile 1** (`COLUP1`, background-coloured to cut the hole — moved off Missile 0 so
+  its colour doesn't clash with the gliding player's `COLUP0`); entities are `GRP1`, drawn 2x in
+  their fixed band rows with per-floor type/colour and edge-slide.
+- HUD is a dedicated 12-line top region rendering a 6-digit BCD score.
 
 ## Design Rules
 

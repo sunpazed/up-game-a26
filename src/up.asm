@@ -254,7 +254,10 @@ NewGame
 	; 0/159 wrap zone, so the same separation holds as they scroll). Floor 5: none.
 	ldx #4
 .ngGapFloor
-	ldy #8                  ; re-roll attempt cap (collisions are rare)
+	ldy #4                  ; re-roll attempt cap. Bounds NewGame's worst-case time
+	                        ; (it runs unblanked-but-untimed from a restart, bypassing
+	                        ; WaitOverscan) so a string of re-rolls can't stretch the
+	                        ; restart frame past 262 lines. 4 still keeps stacking rare.
 .ngGapRoll
 	jsr Rng                 ; (Rng preserves X and Y)
 	and #$7F

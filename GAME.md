@@ -234,7 +234,7 @@ Key implementation facts not obvious from a quick skim:
 - **Stage 1** (full game re-layered): entity (`GRP1`) redrawn 2x in its fixed band rows; **gap
   moved to Missile 1** (`COLUP1`) so its background colour no longer collides with the gliding
   player's `COLUP0`; run-cycle animation restored via two page-aligned frame buffers. Validated
-  in Stella. (Known: rare frame over-run under investigation — see §8.)
+  in Stella. A rare restart-frame over-run was traced and bounded (see §8).
 
 ### Cross-cutting — sprite edge slide  ✅ DONE
 - **Problem:** the mod-160 wrap means an 8px object can't slide *off* an edge — entities popped
@@ -646,6 +646,17 @@ draw the player at an **arbitrary** scanline, not just inside one band's content
   entity lookup tables, and the old 8-byte player frames into the gap after `PosTblP1`.
 - **RAM:** `playerY`, `sprPtrLoTab[6]`; constants `PREST_OFF`, `PLERP`.
 
+**Rare frame over-run — analysis + fix.** A very rare (≈once in dozens of games) one-frame roll was
+reported. Ruled out the visible kernel: every band loop is `WSYNC`-exact, the free-running lines 2/4
+start at a fixed cycle (the cycle-74 `PosTbl` always ends `sta HMOVE` @74 + `sta WSYNC`), the wait
+loop is bounded (delay nibble ≤ 10), and `CalcQuickPos` is branchless. That leaves the unblanked/timed
+work: the prime suspect is **`NewGame` on restart** — `CheckRestart` does `jmp NewGame` from overscan,
+and `NewGame` runs to `NextFrame`'s `VSYNC` **without** passing `WaitOverscan`, so its length isn't
+clamped by `TIM64T`. Its one variable-length path is the gap re-roll loop, so its per-floor cap was
+tightened 8 → 4 to bound the tail (stacking stays rare). Secondary suspect: a heavy gameplay frame
+(cone collision + several simultaneous entity transitions, each `jsr Rng`/`SetRespawnDelay`) tipping
+overscan past `TIM64T`; if it recurs, the fix is to shift idle VBLANK lines into the timer budget.
+
 ### Polish / QoL (post-M6)
 - **Sound:** frame-timed engine on TIA channel 0 (`UpdateSound`, `sfxId`/`sfxTimer`) — jump (rising
   tone), drop (falling), cone (two-note coin), death (two white-noise bursts). Triggered at the
@@ -780,5 +791,9 @@ materially steered the implementation. Recording the key interventions:
   line 19 — fixed by preloading the enable byte on line 18); the **3-line stale-row distortion below
   platforms** (player not drawn on the cycle-74 lines); and that the **player stopped animating**
   (single glide buffer — restored with two frame buffers). Each was a precise visual catch.
+- **Reported a very rare one-frame over-run and asked for candidate analysis** rather than a blind
+  fix. This drove the systematic elimination (visible kernel ruled out as fixed-time; the untimed
+  `NewGame` restart path and the overscan `TIM64T` budget identified as the real candidates), and the
+  user chose to "start with re-roll" — bounding `NewGame`'s gap re-roll cap as the cheap first step.
 - **Process: keep the `.md` docs updated between milestones**, with detailed implementation
   writeups — and maintain this steering log.
