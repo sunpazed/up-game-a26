@@ -227,12 +227,14 @@ Key implementation facts not obvious from a quick skim:
 - The power-up item that clears all skulls on screen (JS: converts skulls → cones). New entity
   type + collision effect.
 
-### M9 — Player vertical glide (free-Y player kernel)  🔶 STAGE 0 DONE (branch `player-glide`)
-- The player now **slides** vertically between floors (jump/fall) instead of snapping. Implemented
-  on a branch as a staged rework of the band kernel; **stage 0** (free-Y player draw, entities/gap
-  off) is validated in Stella — smooth glide, no notch, no roll, clean score. See §8 for detail.
-- **Stage 1 (next):** re-layer the entity (`GRP1`) and gap (Missile 0) drawing back onto the
-  free-Y kernel and re-validate full gameplay.
+### M9 — Player vertical glide (free-Y player kernel)  ✅ DONE (branch `player-glide`)
+- The player now **slides** vertically between floors (jump/fall) instead of snapping, drawn at
+  an arbitrary scanline via a page-aligned zero-padded sprite + per-band pointer offset.
+- **Stage 0** (free-Y player, entities/gap off): smooth glide, no notch, no roll, clean score.
+- **Stage 1** (full game re-layered): entity (`GRP1`) redrawn 2x in its fixed band rows; **gap
+  moved to Missile 1** (`COLUP1`) so its background colour no longer collides with the gliding
+  player's `COLUP0`; run-cycle animation restored via two page-aligned frame buffers. Validated
+  in Stella. (Known: rare frame over-run under investigation — see §8.)
 
 ### Cross-cutting — sprite edge slide  ✅ DONE
 - **Problem:** the mod-160 wrap means an 8px object can't slide *off* an edge — entities popped
@@ -586,7 +588,7 @@ confirmed soft-reset for HI persistence — the elegant fix for fitting an 8-let
   (`0` normal / `1..7` out / `$80|N` in); per-floor `entDrawLo`/`entRefp` resolved in the precompute,
   the kernel just loads them; `REFP1` cleared before `DrawDigits` (GRP1 is shared with the score).
 
-### M9 — Player vertical glide (free-Y player kernel)  [branch `player-glide`, stage 0]
+### M9 — Player vertical glide (free-Y player kernel)  [branch `player-glide`]
 The logical floor (`playerFloor`) still snaps instantly on a jump/fall, but a new **visual** Y
 (`playerY`, band-region-relative scanline) *lerps* toward the floor's rest line (`playerFloor*30 +
 PREST_OFF`, by `PLERP` px/frame in `UpdatePlayerY`, overscan). The kernel had to become able to
@@ -608,11 +610,14 @@ draw the player at an **arbitrary** scanline, not just inside one band's content
   very first kernel reading uninitialised pointers.)
 - **Drawing on all 30 band lines (no notch).** The band has 5 "positioning" lines at its top
   (`setbg` + the two cycle-74 `Pos74M0`/`Pos74P1` strobe lines + their two trailing lines) where the
-  content loop can't run. The player is drawn on each: lines 1 & 3 in the cycle-74 HBLANK pads
-  (`ldy #1/#3; lda (sprPtr),y; sta GRP0` in the 8-cyc dead-time slot), lines 2 & 4 inline after each
-  `WSYNC`, and **line 0** (`setbg`) by making `curFloor` a running counter (no per-band subtract) so
-  `sprPtr` loads early enough to write `GRP0` at ~cycle 25, just before the player's x (pixel 10).
-  The content loop covers band-local 5..29. Result: the player is solid across the whole band region.
+  content loop can't run. The player is drawn on each: **line 0** (`setbg`) by making `curFloor` a
+  running counter (no per-band subtract) so `sprPtr` loads early enough to write `GRP0` at ~cycle 25,
+  just before the player's x (pixel 10); **lines 2 & 4** inline after each `WSYNC`; and **lines 1 & 3**
+  inside the cycle-74 pads. The pads must keep `HMOVE` on cycle 74 (an 8-cyc `lda (sprPtr),y / sta
+  GRP0` shifted it to 73 and made the entity/gap positioning erratic). The fix: **preload** the player
+  byte into A *before* the pad's `sta WSYNC` (a WSYNC strobe doesn't disturb A), then `sta GRP0` + 3
+  `nop`s = the exact 9-cycle dead-time. The content loop covers band-local 5..29 — player solid across
+  the whole band.
 - **Three rendering fixes found in Stella:**
   1. *Score bleed* — the score is `VDELP`-double-buffered, so its first displayed `GRP0` row uses the
      *old* latch, which still held the previous frame's last band `GRP0` write; a mid-glide player
@@ -623,9 +628,23 @@ draw the player at an **arbitrary** scanline, not just inside one band's content
   3. *Bottom line cut to black* — the content loop had no closing `WSYNC`, so overscan's `VBLANK`
      blanked the last band line ~⅓ of the way across. Added a closing `WSYNC` (last line renders
      fully) and removed one VBLANK line to keep the frame at exactly 262.
-- **RAM:** `playerY`, `sprPtrLoTab[6]`; constants `PREST_OFF`, `PLERP`. **Stage 1** will re-introduce
-  entity (`GRP1`) and gap (Missile 0) drawing onto this kernel (the cycle-74 pads were retimed by
-  1 cycle for the player write — fine while those objects are off, to be recalibrated when they return).
+**Stage 1 — full game re-layered onto the glide kernel:**
+- **Entity (`GRP1`)** redrawn 2x in its fixed band rows (7..18) while the player draws free-Y on every
+  line. Both reads are `(zp),Y`, so the entity row tracks in X and the player line in a scratch byte;
+  the entity is loaded first (it may sit at x=0 sliding out left). Selected per floor on line 4's spare
+  cycles (`COLUP1` / `entPtr` / `REFP1`).
+- **Gap → Missile 1.** M0's colour is `COLUP0` (shared with the player), but the gliding player crosses
+  platform rows where the gap needs `COLUP0 = COL_BG` — a conflict. Since M0 was now free, its
+  positioning machinery (`PosTblM0`, `gapQuick`) was repurposed to strobe **RESM1**, so the gap is M1
+  (colour `COLUP1`, `NUSIZ1 = $30` for 8px). `COLUP1` is time-multiplexed: entity colour in the body
+  rows, `COL_BG` on the platform rows (different scanlines). The enable byte is **preloaded on line 18**
+  so the gap turns on before pixel 0 of line 19 (else a left-edge gap clipped its top row).
+- **Run-cycle animation restored.** Two page-aligned buffers `PlayerBuf0/1` one page apart; the kernel
+  picks the page = `>PlayerBuf0 + animFrame`. The per-band offset (`sprPtrLoTab`) is frame-independent,
+  so only the high byte changes. `PLAYER_FRAME` macro doubles 6 editable body rows per frame.
+- **ROM:** the bigger kernel overflowed `$f000-$f500`; relocated `GapOnTable`/`MultTab`/`DelayTab`, the
+  entity lookup tables, and the old 8-byte player frames into the gap after `PosTblP1`.
+- **RAM:** `playerY`, `sprPtrLoTab[6]`; constants `PREST_OFF`, `PLERP`.
 
 ### Polish / QoL (post-M6)
 - **Sound:** frame-timed engine on TIA channel 0 (`UpdateSound`, `sfxId`/`sfxTimer`) — jump (rising
@@ -755,5 +774,11 @@ materially steered the implementation. Recording the key interventions:
   - Caught the **top-left background not solid** ("changing background too late?") and the **bottom
     raster line transitioning to black too early (overscan)** — both precisely diagnosed and both
     correct: a late `COLUPF` and a missing closing `WSYNC`.
+- **Drove the stage-1 re-layering and caught each regression by eye:** spotted the **erratic entity
+  slide** (the 1-cycle cycle-74 pad shift — led to the preload fix that draws lines 1/3 *and* keeps
+  `HMOVE` on cycle 74); the **green line across left-edge gaps** (gap missile enabled too late on
+  line 19 — fixed by preloading the enable byte on line 18); the **3-line stale-row distortion below
+  platforms** (player not drawn on the cycle-74 lines); and that the **player stopped animating**
+  (single glide buffer — restored with two frame buffers). Each was a precise visual catch.
 - **Process: keep the `.md` docs updated between milestones**, with detailed implementation
   writeups — and maintain this steering log.

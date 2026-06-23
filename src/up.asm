@@ -59,8 +59,8 @@ GAP_WRAP     = 159      ; respawn x at the right edge (cycle-74 reaches 0..159).
                         ; per-game variety comes from the randomised START layout.
 GAP_MIN_SEP  = 24       ; min x-distance between adjacent floors' start gaps, so
                         ; holes never stack (= drop the player straight through)
-FALL_LO      = 8        ; gap-under-player window [FALL_LO..FALL_HI], centred on
-FALL_HI      = 14       ;   ~15 (measured: gap fully under the player at gapX~15)
+FALL_LO      = 14       ; gap-under-player window [FALL_LO..FALL_HI], centred on
+FALL_HI      = 18       ;   ~15 (measured: gap fully under the player at gapX~15)
 
 ; entities (GRP1): one per platform, scroll right-to-left
 ENT_CONE     = 1        ; gold collectible (+1 score)
@@ -389,9 +389,9 @@ VBlankLoop
 	lda #0
 	sta VDELP0
 	sta VDELP1
-	sta NUSIZ1              ; entity = single copy
 	lda #$30
-	sta NUSIZ0              ; missile 8px wide, player single copy
+	sta NUSIZ1              ; entity single copy + gap missile M1 8px wide
+	sta NUSIZ0              ; player single copy + M0 8px (M0 unused)
 	sta WSYNC
 	; HUD line 11: re-place the player P0 near PLAYER_X
 	SLEEP PLAYER_SLEEP
@@ -403,8 +403,12 @@ VBlankLoop
 	; Six platform bands
 	lda #NUM_BANDS
 	sta bandCount
-	lda #>PlayerBuf         ; player ptr hi byte is constant (page-aligned buffer)
-	sta sprPtr+1
+	lda animFrame           ; run-cycle frame 0/1 selects the player buffer page
+	clc
+	adc #>PlayerBuf0        ; PlayerBuf0/1 are one page apart, same low-byte layout
+	sta sprPtr+1            ; constant for the whole frame (animFrame is fixed here)
+	lda #>ZeroSprite        ; entity ptr hi byte is constant (all art in page f5)
+	sta entPtr+1
 	lda #COL_PLAYER
 	sta COLUP0              ; player colour is constant across bands (hoisted out)
 	lda #0
@@ -418,62 +422,125 @@ BandLoop
 	lda #COL_BG
 	sta COLUPF              ; air bg, set first (well inside HBLANK)
 	ldx curFloor
-	lda sprPtrLoTab,x       ; <PlayerBuf + offset (or <PlayerBuf when not in band)
-	sta sprPtr              ; (sprPtr+1 already = >PlayerBuf, set before the loop)
+	lda sprPtrLoTab,x       ; offset into the player buffer (or 0 = blank band)
+	sta sprPtr              ; (sprPtr+1 already = the frame's buffer page)
 	ldy #0
 	lda (sprPtr),y          ; player band-local line 0 ...
 	sta GRP0                ; ... GRP0 written ~cycle 25, before pixel 10
 	lda #0
-	sta ENAM0
-	sta GRP1                ; stage 0: entity off
+	sta ENAM1               ; gap missile off until the platform rows below
+	sta GRP1
 
-	; position the gap missile (cycle-74). Its HBLANK pad also draws the player
-	; on band-local line 1 (see Pos74M0).
+	; position the gap missile M1 (cycle-74; the pad also draws the player on
+	; band-local line 1 via a preloaded byte, keeping HMOVE exactly on cycle 74).
 	ldy curFloor
 	jsr Pos74M0
 	lda #$80
-	sta HMM0                ; restore no-motion
+	sta HMM1                ; restore no-motion so Pos74P1's HMOVE won't move M1
 	; player on band-local line 2 (HBLANK, before the player's x)
 	ldy #2
 	lda (sprPtr),y
 	sta GRP0
-	; position the entity (cycle-74); its pad draws the player on band-local 3
+	; position the entity sprite P1 (cycle-74; its pad draws the player on line 3)
 	ldy curFloor
 	jsr Pos74P1
 	lda #$80
 	sta HMP1
-	; player on band-local line 4
+	; player on band-local line 4 (all 5 positioning lines now draw the player, so
+	; the glide has no stale-row gap at a band top)
 	ldy #4
 	lda (sprPtr),y
 	sta GRP0
+	; --- entity select for this floor (line 4 has the spare cycles) ---
+	; colour by type; pointer = base or pre-shifted slide frame (entDrawLo);
+	; REFP1 reflects the bitmap while sliding in (entRefp, else 0).
+	ldy curFloor
+	ldx entType,y
+	lda EntColorTable,x
+	sta COLUP1
+	lda entDrawLo,y
+	sta entPtr              ; entPtr+1 already = >ZeroSprite (set before the loop)
+	lda entRefp,y
+	sta REFP1
 
-	; --- content region (band-local 5..29): player (GRP0) + platform colour ---
-	; STAGE 0: entity (GRP1) and the gap missile stay off; validating the free-Y
-	; player draw + timing. Player is now drawn on lines 1..29 (only line 0 blank).
-	ldy #5                  ; band-local line 5..29
-.pcLoop
+	; --- content region (band-local 5..29) ---
+	; STAGE 1a: player free-Y on every line; entity (GRP1) drawn 2x in its fixed
+	; band rows (7..18); gap missile still OFF. Air 5..18, green 19..23, grey 24..29.
+
+	; air rows 5..6 (player only; COLUPF still COL_BG from setbg)
+	ldy #5
 	sta WSYNC
-	; platform colour for this line, set in HBLANK (before pixel 0):
-	;   band-local 5..18 = air (bg), 19..23 = green top, 24..29 = grey
-	cpy #19
-	bcc .pcBg
-	cpy #24
-	bcc .pcGrn
-	lda #COL_GREY
-	bne .pcSetCol
-.pcGrn
-	lda #COL_GREEN
-	bne .pcSetCol
-.pcBg
+	lda (sprPtr),y
+	sta GRP0
+	iny
+	sta WSYNC
+	lda (sprPtr),y
+	sta GRP0
+	iny                     ; y = 7
+
+	; entity region 7..18: entity rows 7..2 each on TWO lines (2x tall, no vertical
+	; stretch on the 2600), player free-Y drawn on every line. Both reads are
+	; (zp),Y, so the entity row tracks in X and the player line in tempOne; the
+	; entity is loaded first since it may sit at x=0 (sliding out the left edge).
+	lda #7
+	sta tempOne             ; player band-local line (7..18)
+	ldx #7                  ; entity row 7..2
+.entRegion
+	sta WSYNC               ; 1st line of the pair
+	txa
+	tay
+	lda (entPtr),y          ; entity row (Y = entity row)
+	sta GRP1
+	ldy tempOne
+	lda (sprPtr),y          ; player row (free-Y)
+	sta GRP0
+	inc tempOne
+	sta WSYNC               ; 2nd line of the pair (GRP1 holds -> 2x tall)
+	ldy tempOne
+	lda (sprPtr),y          ; player row (free-Y)
+	sta GRP0
+	inc tempOne
+	dex
+	cpx #1
+	bne .entRegion          ; rows 7..2 -> band-local lines 7..18
+
+	; preload the gap-enable byte while still on line 18 (the entity's last line),
+	; so line 19's HBLANK can enable + colour the gap missile BEFORE pixel 0.
+	; (Doing it late clipped the top row of a left-edge gap.)
+	ldx curFloor
+	lda GapOnTable,x
+	tax                     ; X = ENAM1 enable byte for this floor
+
+	; platform line 19 (green): entity off, gap enabled+coloured, green, player.
+	ldy #19
+	sta WSYNC
+	lda #0
+	sta GRP1                ; entity off (cycle 5)
+	stx ENAM1               ; enable gap missile (cycle 8, before pixel 0)
 	lda #COL_BG
-.pcSetCol
+	sta COLUP1              ; gap colour = background (cycle 13, before pixel 0)
+	lda #COL_GREEN
+	sta COLUPF              ; green platform (cycle 18, before pixel 0)
+	lda (sprPtr),y
+	sta GRP0                ; player free-Y (cycle ~26; rarely on a platform line)
+	iny                     ; y = 20
+
+	; platform rows 20..29: player free-Y + green(20..23)/grey(24..29) colour
+.platform
+	sta WSYNC
+	cpy #24
+	bcc .pfGrn
+	lda #COL_GREY
+	bne .pfSet              ; COL_GREY != 0 -> always taken
+.pfGrn
+	lda #COL_GREEN
+.pfSet
 	sta COLUPF
-	; player row via pointer-offset (0 on lines the player doesn't occupy)
 	lda (sprPtr),y
 	sta GRP0
 	iny
 	cpy #30
-	bne .pcLoop
+	bne .platform
 
 	inc curFloor            ; advance to the next band's floor index
 	dec bandCount
@@ -483,9 +550,9 @@ BandLoop
 	sta WSYNC               ; complete the last band's final visible line before
 	                        ; overscan blanks it (compensated by one fewer VBLANK line)
 
-	; turn the missile off before leaving the visible area
+	; turn the gap missile off before leaving the visible area
 	lda #0
-	sta ENAM0
+	sta ENAM1
 
 ;-------------------------------------------------------------
 ; Overscan (~30 lines via timer) - game logic + positioning precompute
@@ -599,27 +666,34 @@ WaitOverscan
 	jmp NextFrame
 
 ;-------------------------------------------------------------
-; Pos74M0 - position Missile 0 at gap[curFloor] in one scanline.
-;   IN: Y = curFloor. Uses precomputed gapQuick / posJmpLo.
+; Pos74M0 - position the gap Missile 1 at gap[curFloor] in one scanline.
+;   IN: Y = curFloor. Uses precomputed gapQuick / posJmpLo. (The gap moved from
+;   M0 to M1 so its background colour COLUP1 no longer collides with the gliding
+;   player's COLUP0; PosTblM0 strobes RESM1.)
 ;   Cycle-74 HMOVE: clean edge-to-edge positioning, no comb.
 ;-------------------------------------------------------------
 Pos74M0
 	lda gapQuick,y
-	sta HMM0                ; high nibble = fine motion (low nibble ignored)
+	sta HMM1                ; high nibble = fine motion (low nibble ignored)
 	and #$0F
 	tax                     ; X = delay count
 	lda posJmpLo,y
 	sta posJmp
 	lda #>PosTblM0
 	sta posJmp+1
-	ldy #1                  ; player band-local line 1 (preload; Y free after setup)
+	ldy #1                  ; band-local line 1
+	lda (sprPtr),y          ; preload the player row (A survives the WSYNC strobe)
 	sta WSYNC
-	lda (sprPtr),y          ; 5  draw the player row in HBLANK...
-	sta GRP0                ; 3  = 8 cyc dead time (1 less than the old 9)
+	; 9 cycles of dead time (HMOVE stays @ cycle 74); the first store draws the
+	; player on this cycle-74 line so the glide has no stale-row gap at line 1.
+	sta GRP0                ; 3  player row (A = preloaded byte)
+	nop                     ; 2
+	nop                     ; 2
+	nop                     ; 2
 .wait74
 	dex
 	bpl .wait74
-	jmp (posJmp)            ; into PosTblM0; strobes RESM0, HMOVE @ ~74, rts
+	jmp (posJmp)            ; into PosTblM0; strobes RESM1, HMOVE @ ~74, rts
 
 ;-------------------------------------------------------------
 ; Pos74P1 - position the entity sprite (GRP1) at ent[curFloor].
@@ -635,10 +709,14 @@ Pos74P1
 	sta posJmp
 	lda #>PosTblP1
 	sta posJmp+1
-	ldy #3                  ; player band-local line 3 (preload; Y free after setup)
+	ldy #3                  ; band-local line 3
+	lda (sprPtr),y          ; preload the player row (A survives the WSYNC strobe)
 	sta WSYNC
-	lda (sprPtr),y          ; 5  draw the player row in HBLANK...
-	sta GRP0                ; 3  = 8 cyc dead time
+	; 9 cycles of dead time (HMOVE stays @ cycle 74); draw the player on line 3
+	sta GRP0                ; 3  player row (A = preloaded byte)
+	nop
+	nop
+	nop
 .wait74p
 	dex
 	bpl .wait74p
@@ -1006,40 +1084,8 @@ CalcQuickPos
 ;-------------------------------------------------------------
 ; Tables
 ;-------------------------------------------------------------
-; ENAM0 enable byte per floor (bit1 = enable). Floor 5 = no gap.
-GapOnTable
-	.byte 2,2,2,2,2,0
-
-; quickPos divide tables (from examples/hmove74.asm)
-MultTab
-	.byte -25,-10,5,20,35,50,65,80,95,110,-21
-DelayTab
-	.byte 1,2,3,4,5,6,7,8,9,10,0
-
-; Player run-cycle frames (bottom row first; index 7 = top row). Both frames
-; live in the same page so the kernel selects one by low byte via PlayerFrameLo.
-; PlayerSprite1 starts as a copy of frame 0 -- edit it to make the second pose.
-PlayerSprite0
-	.byte %00000000         ; offset 0 (bottom)
-	.byte %00000000         ;  
-	.byte %11001100         ; ll  ll
-	.byte %11111100         ; llllll
-	.byte %11010100         ; ll l l
-	.byte %11010100         ; ll l l
-	.byte %11111100         ; llllll  
-	.byte %00000000			; (offset 7, top)
-PlayerSprite1
-	.byte %00000000         ; offset 0 (bottom)
-	.byte %00000000
-	.byte %01001000         ;  l  l
-	.byte %01001000         ;  l  l
-	.byte %11111100         ; llllll
-	.byte %11010100         ; ll l l
-	.byte %11010100         ; ll l l
-	.byte %11111100         ; llllll  (offset 7, top)
-; low-byte lookup for the two frames (indexed by animFrame)
-PlayerFrameLo
-	.byte <PlayerSprite0, <PlayerSprite1
+; (GapOnTable / MultTab / DelayTab / player run-cycle frames moved to the gap
+;  after PosTblP1 -- the $f000-$f500 code region had no room left.)
 
 ; Entity sprite rows (bottom row first), defined as symbols so the base sprites
 ; AND the left/right slide shift tables (all in page f5, below) generate from the
@@ -1072,18 +1118,8 @@ SKULL7 = %00111100         ; top
 	; (ZeroSprite / ConeSprite / SkullSprite base art + the slide tables all live
 	;  together in page f5 -- see the block after JumpTabM0.)
 
-; Entity lookups indexed by entType (0 none, 1 cone, 2 skull)
-EntColorTable
-	.byte $00, COL_CONE, COL_SKULL
-EntSprLo
-	.byte <ZeroSprite, <ConeSprite, <SkullSprite
-; base low byte of each type's slide-shift table (indexed by entType); the
-; sliding sprite = SlideBaseLo[type] + (entSlide-1)*8. Type 0 never slides.
-SlideBaseLo
-	.byte $00, <ConeSlide, <SkullSlide
-; Respawn type roll, indexed by (rng & 3): 50/50 cone / skull
-EntTypeRoll
-	.byte ENT_CONE, ENT_CONE, ENT_SKULL, ENT_SKULL
+; (Entity lookup tables moved to the gap after PosTblP1 -- the $f000-$f500 code
+;  region is full.)
 
 ;-------------------------------------------------------------
 ; Missile-0 cycle-74 strobe table (must stay within one page).
@@ -1094,37 +1130,37 @@ EntTypeRoll
 	org $f500
 PosTblM0
 pM0_3
-	sta RESM0
+	sta RESM1
 	.byte $1C
 pM0_15
-	sta RESM0
+	sta RESM1
 	.byte $1C
 pM0_30
-	sta RESM0
+	sta RESM1
 	.byte $1C
 pM0_45
-	sta RESM0
+	sta RESM1
 	.byte $1C
 pM0_60
-	sta RESM0
+	sta RESM1
 	.byte $1C
 pM0_75
-	sta RESM0
+	sta RESM1
 	.byte $1C
 pM0_90
-	sta RESM0
+	sta RESM1
 	.byte $1C
 pM0_105
-	sta RESM0
+	sta RESM1
 	.byte $1C
 pM0_120
-	sta RESM0
+	sta RESM1
 	.byte $1C
 pM0_135
-	sta RESM0
+	sta RESM1
 	.byte $1C
 pM0_150
-	sta RESM0
+	sta RESM1
 	sta HMOVE
 	sta WSYNC               ; re-align: the positioning line ends here so the
 	rts                     ; band keeps an exact, identical scanline budget
@@ -1207,6 +1243,35 @@ pP1_150
 	sta HMOVE
 	sta WSYNC
 	rts
+
+;-------------------------------------------------------------
+; Tables relocated here (the $f000-$f500 code region is full).
+;-------------------------------------------------------------
+; Entity lookups indexed by entType (0 none, 1 cone, 2 skull)
+EntColorTable
+	.byte $00, COL_CONE, COL_SKULL
+EntSprLo
+	.byte <ZeroSprite, <ConeSprite, <SkullSprite
+; base low byte of each type's slide-shift table (indexed by entType); the
+; sliding sprite = SlideBaseLo[type] + (entSlide-1)*8. Type 0 never slides.
+SlideBaseLo
+	.byte $00, <ConeSlide, <SkullSlide
+; Respawn type roll, indexed by (rng & 3): 50/50 cone / skull
+EntTypeRoll
+	.byte ENT_CONE, ENT_CONE, ENT_SKULL, ENT_SKULL
+
+; ENAM1 enable byte per floor (bit1 = enable). Floor 5 = no gap.
+GapOnTable
+	.byte 2,2,2,2,2,0
+
+; quickPos divide tables (from examples/hmove74.asm)
+MultTab
+	.byte -25,-10,5,20,35,50,65,80,95,110,-21
+DelayTab
+	.byte 1,2,3,4,5,6,7,8,9,10,0
+
+; (The run-cycle frames now live in the page-aligned PlayerBuf0/PlayerBuf1
+;  free-Y buffers near the end of ROM; see PLAYER_FRAME.)
 
 ;-------------------------------------------------------------
 ; FontTable - 8x8 bitmaps for digits 0-9 (page-aligned so each
@@ -1468,18 +1533,30 @@ UpdateSound
 BandStartTab
 	.byte 0, 30, 60, 90, 120, 150, 180
 
-; Zero-padded player sprite for the pointer-offset free-Y draw. The kernel sets
-; sprPtr = PlayerBuf + offset: offset 0 -> the 30 leading zeros (player not in
+; Zero-padded player sprites for the pointer-offset free-Y draw. The kernel sets
+; sprPtr = PlayerBufN + offset: offset 0 -> the 30 leading zeros (player not in
 ; this band, all blank); offset 1..41 slides the 12-byte body to the band-local
 ; line where the player sits. The kernel indexes (sprPtr),Y with Y = band-local
 ; line 1..29, so a 30-byte lead + body + 29-byte tail covers every Y at any
 ; offset. Page-aligned so (sprPtr),Y never crosses a page boundary (constant 5c).
-	align $100
-PlayerBuf
+;
+; Two frames for the run cycle: AnimatePlayer toggles animFrame (0/1), and the
+; kernel picks the buffer page = >PlayerBuf0 + animFrame (the two buffers are one
+; page apart). Both share the same layout, so the per-band offset (sprPtrLoTab)
+; is frame-independent. Edit the 6 body rows (top->bottom); the macro doubles
+; each to 2 scanlines (the 2600 has no vertical stretch).
+	MAC PLAYER_FRAME        ; {1}..{6} = body rows top->bottom (each drawn x2)
 	ds 30, 0                ; leading zeros (offset 0 = blank band; covers L 0..29)
-PlayerBody                  ; body row 0 = PlayerBuf + 30
-	.byte $00,$00,$FC,$FC,$D4,$D4,$D4,$D4,$FC,$FC,$CC,$CC  ; frame doubled (12 rows)
+	.byte {1},{1},{2},{2},{3},{3},{4},{4},{5},{5},{6},{6}
 	ds 29, 0                ; trailing zeros (covers up to L=29 at max offset 41)
+	ENDM
+
+	align $100
+PlayerBuf0
+	PLAYER_FRAME $00,$FC,$D4,$D4,$FC,$CC   ; frame 0: head-up, legs apart
+	align $100
+PlayerBuf1
+	PLAYER_FRAME $FC,$D4,$D4,$FC,$48,$48   ; frame 1: run pose, legs mid-stride
 
 ;-------------------------------------------------------------
 ; Vectors
