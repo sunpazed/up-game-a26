@@ -1,4 +1,5 @@
-build/
+build/*
+.vscode/*
 
 # macOS metadata
 .DS_Store
