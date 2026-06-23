@@ -2,20 +2,6 @@
 
 This project is a DASM Atari 2600 port of the JavaScript game [UP 1 WAY](https://abagames.github.io/crisp-game-lib-11-games/?up1way) (see `js/main.js`). The target is a complete, playable 4K cart. 
 
-## Authorship
-
-Co-authored with Opus 4.8, it took approximately 1.9M tokens to generate this code. Review `GAME.md` to track the progress of this games development, including the examples and developer steering required to generate a stable graphics kernel and coherant Atari 2600 game.
-
-```
- Total cost:            $266.13
- Total duration (API):  7h 36m 33s
- Total duration (wall): 1d 4h 15m
- Total code changes:    3884 lines added, 1682 lines removed
- Usage by model:
-     claude-haiku-4-5:  443 input, 11 output, 0 cache read, 0 cache write ($0.0005)
-      claude-opus-4-8:  123.6k input, 1.9m output, 392.5m cache read, 3.4m cache write ($266.13)    
-```
-
 ## Current Status
 
 - The ROM builds with `make` → `build/up.a26` (exactly 4096 bytes).
@@ -85,3 +71,17 @@ make
 ```
 
 Then load `build/up.a26` in Stella to verify and save a snapshot to `build/up.png`.
+
+## Authorship
+
+Co-authored with Opus 4.8, it took approximately 1.9M tokens to generate this code. Review `GAME.md` to track the progress of this games development, including the examples and developer steering required to generate a stable graphics kernel and coherant Atari 2600 game.
+
+```
+ Total cost:            $266.13
+ Total duration (API):  7h 36m 33s
+ Total duration (wall): 1d 4h 15m
+ Total code changes:    3884 lines added, 1682 lines removed
+ Usage by model:
+     claude-haiku-4-5:  443 input, 11 output, 0 cache read, 0 cache write ($0.0005)
+      claude-opus-4-8:  123.6k input, 1.9m output, 392.5m cache read, 3.4m cache write ($266.13)    
+```
