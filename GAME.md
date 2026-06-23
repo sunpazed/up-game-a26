@@ -234,7 +234,7 @@ Key implementation facts not obvious from a quick skim:
 - **Stage 1** (full game re-layered): entity (`GRP1`) redrawn 2x in its fixed band rows; **gap
   moved to Missile 1** (`COLUP1`) so its background colour no longer collides with the gliding
   player's `COLUP0`; run-cycle animation restored via two page-aligned frame buffers. Validated
-  in Stella. A rare restart-frame over-run was traced and bounded (see §8).
+  in Stella. A rare restart-frame over-run was traced, bounded, and confirmed gone in play (see §8).
 
 ### Cross-cutting — sprite edge slide  ✅ DONE
 - **Problem:** the mod-160 wrap means an 8px object can't slide *off* an edge — entities popped
@@ -653,9 +653,10 @@ loop is bounded (delay nibble ≤ 10), and `CalcQuickPos` is branchless. That le
 work: the prime suspect is **`NewGame` on restart** — `CheckRestart` does `jmp NewGame` from overscan,
 and `NewGame` runs to `NextFrame`'s `VSYNC` **without** passing `WaitOverscan`, so its length isn't
 clamped by `TIM64T`. Its one variable-length path is the gap re-roll loop, so its per-floor cap was
-tightened 8 → 4 to bound the tail (stacking stays rare). Secondary suspect: a heavy gameplay frame
-(cone collision + several simultaneous entity transitions, each `jsr Rng`/`SetRespawnDelay`) tipping
-overscan past `TIM64T`; if it recurs, the fix is to shift idle VBLANK lines into the timer budget.
+tightened 8 → 4 to bound the tail (stacking stays rare). **Confirmed gone** across extended play after
+the cap change. (Secondary suspect, not needed in the end: a heavy gameplay frame — cone collision +
+several simultaneous entity transitions, each `jsr Rng`/`SetRespawnDelay` — tipping overscan past
+`TIM64T`; if it ever recurs, the fix is to shift idle VBLANK lines into the timer budget.)
 
 ### Polish / QoL (post-M6)
 - **Sound:** frame-timed engine on TIA channel 0 (`UpdateSound`, `sfxId`/`sfxTimer`) — jump (rising
