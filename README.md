@@ -35,6 +35,10 @@ Co-authored with Opus 4.8, it took approximately 1.768M tokens to generate this 
   slide in/out at both screen edges (pre-shifted sprites + hardware reflect). Cone/skull
   animation frames deferred.
 - **M8 — Power-up** (clears skulls): ⬜.
+- **M9 — Player vertical glide** (free-Y player kernel): 🔶 stage 0 done on branch `player-glide` —
+  the player now slides smoothly between floors on jump/fall, drawn at an arbitrary scanline via a
+  page-aligned zero-padded sprite + per-band pointer offset (precomputed in VBLANK). Entities + gaps
+  re-layer back in at stage 1.
 
 ### Polish / QoL (post-M6)
 - **Sound**: 4 effects on TIA channel 0 — jump (rising), drop (falling), cone (coin), death (noise).

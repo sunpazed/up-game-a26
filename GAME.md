@@ -227,6 +227,13 @@ Key implementation facts not obvious from a quick skim:
 - The power-up item that clears all skulls on screen (JS: converts skulls → cones). New entity
   type + collision effect.
 
+### M9 — Player vertical glide (free-Y player kernel)  🔶 STAGE 0 DONE (branch `player-glide`)
+- The player now **slides** vertically between floors (jump/fall) instead of snapping. Implemented
+  on a branch as a staged rework of the band kernel; **stage 0** (free-Y player draw, entities/gap
+  off) is validated in Stella — smooth glide, no notch, no roll, clean score. See §8 for detail.
+- **Stage 1 (next):** re-layer the entity (`GRP1`) and gap (Missile 0) drawing back onto the
+  free-Y kernel and re-validate full gameplay.
+
 ### Cross-cutting — sprite edge slide  ✅ DONE
 - **Problem:** the mod-160 wrap means an 8px object can't slide *off* an edge — entities popped
   in at `x=152` and vanished at `x=0`.
@@ -579,6 +586,47 @@ confirmed soft-reset for HI persistence — the elegant fix for fitting an 8-let
   (`0` normal / `1..7` out / `$80|N` in); per-floor `entDrawLo`/`entRefp` resolved in the precompute,
   the kernel just loads them; `REFP1` cleared before `DrawDigits` (GRP1 is shared with the score).
 
+### M9 — Player vertical glide (free-Y player kernel)  [branch `player-glide`, stage 0]
+The logical floor (`playerFloor`) still snaps instantly on a jump/fall, but a new **visual** Y
+(`playerY`, band-region-relative scanline) *lerps* toward the floor's rest line (`playerFloor*30 +
+PREST_OFF`, by `PLERP` px/frame in `UpdatePlayerY`, overscan). The kernel had to become able to
+draw the player at an **arbitrary** scanline, not just inside one band's content rows.
+
+- **Free-Y draw via pointer offset.** A zero-padded sprite buffer `PlayerBuf` = 30 leading zeros +
+  12 body rows + 29 trailing zeros, **page-aligned** so `(sprPtr),Y` never crosses a page (constant
+  5 cycles). Per band, `sprPtr = PlayerBuf + offset` where `offset = (band+1)*30 − playerY`; the
+  kernel then reads `(sprPtr),Y` with `Y` = band-local line. When the body lands in this band the
+  player appears at the right rows; when it doesn't, `offset` clamps to a zeros region and every
+  read is `0` (blank). `offset` is computed once per band per frame (clamped to 0..41).
+- **Where the offset is computed — and why VBLANK, not overscan.** First put the 6-band
+  `sprPtrLoTab[]` precompute in overscan; on glide/fall frames the extra `UpdateWorld`+
+  `UpdatePlayerY` work pushed overscan past its `TIM64T` budget → **occasional roll when moving**.
+  Moved the precompute into VBLANK's otherwise-idle `WSYNC` loop (one band per line, ~31 cyc of a
+  76-cyc line, no change to the line count). `playerY` is final from the previous overscan and feeds
+  this frame's kernel, so the ordering is correct — and overscan returns under budget. (Bonus: the
+  first frame after `NewGame` now has valid pointers; previously the old-overscan order left the
+  very first kernel reading uninitialised pointers.)
+- **Drawing on all 30 band lines (no notch).** The band has 5 "positioning" lines at its top
+  (`setbg` + the two cycle-74 `Pos74M0`/`Pos74P1` strobe lines + their two trailing lines) where the
+  content loop can't run. The player is drawn on each: lines 1 & 3 in the cycle-74 HBLANK pads
+  (`ldy #1/#3; lda (sprPtr),y; sta GRP0` in the 8-cyc dead-time slot), lines 2 & 4 inline after each
+  `WSYNC`, and **line 0** (`setbg`) by making `curFloor` a running counter (no per-band subtract) so
+  `sprPtr` loads early enough to write `GRP0` at ~cycle 25, just before the player's x (pixel 10).
+  The content loop covers band-local 5..29. Result: the player is solid across the whole band region.
+- **Three rendering fixes found in Stella:**
+  1. *Score bleed* — the score is `VDELP`-double-buffered, so its first displayed `GRP0` row uses the
+     *old* latch, which still held the previous frame's last band `GRP0` write; a mid-glide player
+     body row leaked into the leading blank digits. Fixed by flushing both `GRP0/GRP1` old+new latches
+     at HUD entry (4 writes), **after** `COLUPF` is set.
+  2. *Top-left background* — that latch flush, placed before `COLUPF`, pushed the background colour
+     past HBLANK on the first visible line. Reordered: `COLUPF` first.
+  3. *Bottom line cut to black* — the content loop had no closing `WSYNC`, so overscan's `VBLANK`
+     blanked the last band line ~⅓ of the way across. Added a closing `WSYNC` (last line renders
+     fully) and removed one VBLANK line to keep the frame at exactly 262.
+- **RAM:** `playerY`, `sprPtrLoTab[6]`; constants `PREST_OFF`, `PLERP`. **Stage 1** will re-introduce
+  entity (`GRP1`) and gap (Missile 0) drawing onto this kernel (the cycle-74 pads were retimed by
+  1 cycle for the player write — fine while those objects are off, to be recalibrated when they return).
+
 ### Polish / QoL (post-M6)
 - **Sound:** frame-timed engine on TIA channel 0 (`UpdateSound`, `sfxId`/`sfxTimer`) — jump (rising
   tone), drop (falling), cone (two-note coin), death (two white-noise bursts). Triggered at the
@@ -689,5 +737,23 @@ materially steered the implementation. Recording the key interventions:
      so the separation holds as they scroll past the wrap zone.
   Also noticed the **entities entered in a rigid diagonal** (uniform spawn stagger) → replaced with
   random first-spawn delays so they arrive at varied times.
+- **Directed the player vertical glide (M9) and framed the kernel constraint precisely.** Asked for
+  the player to *slide* toward the platform on jump/fall, noting it "requires the player sprite to be
+  generated (potentially drawn) on every single scanline" and "the state of the player managed
+  frame-by-frame". Then sharpened it: *"The horizontal positioning never changes… the vertical
+  positioning is based on triggering writes to `GRP0`. The kernel just needs to know when to write to
+  `GRP0` and when to stop."* — which is exactly the free-Y pointer-offset draw. Chose to **branch and
+  attempt it** with the option to discard, and validated **stage 0** in Stella.
+- **Drove the glide bug-hunt from emulator observation:**
+  - *"the boundary blanking in the air section"* → identified the 5 cycle-74 positioning lines as the
+    notch; chose to fix it on the simple stage-0 kernel first.
+  - *"`pcLoop` often eats up all the scanlines… occasionally, when moving up/down"* → the right
+    symptom for an **overscan timer overrun** on movement frames (the new precompute tipped it over);
+    fixed by moving the precompute into idle VBLANK cycles.
+  - Spotted the **player graphics bleeding into the big score digits** ("notice the gap in the
+    player") → the `VDELP` old-latch score bleed.
+  - Caught the **top-left background not solid** ("changing background too late?") and the **bottom
+    raster line transitioning to black too early (overscan)** — both precisely diagnosed and both
+    correct: a late `COLUPF` and a missing closing `WSYNC`.
 - **Process: keep the `.md` docs updated between milestones**, with detailed implementation
   writeups — and maintain this steering log.

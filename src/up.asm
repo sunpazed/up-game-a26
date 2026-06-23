@@ -161,6 +161,8 @@ entSlide        ds 6    ; per-floor edge-slide state: 0 = normal; 1..7 = sliding
                         ;   the RIGHT edge (asl amount N, reflected via REFP1)
 entDrawLo       ds 6    ; per-floor resolved entity sprite low byte (base or shift)
 entRefp         ds 6    ; per-floor REFP1 value ($08 while sliding in, else $00)
+sprPtrLoTab     ds 6    ; per-band player-sprite pointer low byte (free-Y draw);
+                        ;   = <PlayerBuf + offset, precomputed each frame from playerY
 Digit0          ds 12   ; 6 font pointers (Digit0..Digit5) for the score kernel
 loopCnt         ds 1    ; scanline counter inside DrawDigits
 
@@ -334,9 +336,31 @@ NextFrame
 	sta VDELP0              ; vertical delay: enables the 6-digit retrigger
 	sta VDELP1
 
-	ldx #34                 ; remaining VBLANK lines (2 + 34 = 36)
+	; --- per-band player-sprite pointer, computed in VBLANK's idle cycles ---
+	; playerY was finalised by the previous frame's overscan, and the value feeds
+	; THIS frame's band kernel (right after VBLANK), so the ordering is correct.
+	; Doing it here keeps overscan under its TIM64T budget on glide/fall frames.
+	; offset = (band+1)*30 - playerY; 0..41 -> body lands in band, else 0 (blank).
+	ldx #33                 ; remaining VBLANK lines (2 + 33 = 35; one line was
+	                        ; moved to the kernel's closing WSYNC so the bottom
+	                        ; band line renders fully before overscan blanks it)
+	ldy #5                  ; band index 5..0 (first 6 loop lines do the precompute)
 VBlankLoop
 	sta WSYNC
+	cpy #6
+	bcs .vbSkipPsp          ; Y wrapped past 0 -> precompute done
+	lda BandStartTab+1,y    ; (band+1)*30 = next band's start scanline
+	sec
+	sbc playerY             ; offset
+	bcc .vbPspZero          ; negative -> blank
+	cmp #42
+	bcc .vbPspStore         ; 0..41 (0 = base/zeros, fine)
+.vbPspZero
+	lda #0
+.vbPspStore
+	sta sprPtrLoTab,y
+	dey
+.vbSkipPsp
 	dex
 	bne VBlankLoop
 
@@ -347,10 +371,19 @@ VBlankLoop
 ; Visible kernel (192 lines = HUD 12 + 6 bands * 30)
 ;-------------------------------------------------------------
 	; --- HUD region: 6-digit score (12 WSYNC-exact lines) ---
+	lda #COL_BG
+	sta COLUPF              ; HUD line 0: playfield invisible behind the score (set
+	                        ; first, before the latch flush, so the bg is solid)
 	lda #0
 	sta REFP1               ; clear any slide-in reflect so score digits (GRP1) aren't mirrored
-	lda #COL_BG
-	sta COLUPF              ; HUD line 0: playfield invisible behind the score
+	; Flush both VDELP old/new latches (VDELP0/1 are still 1 here). The score is
+	; double-buffered, so its first displayed row uses the OLD latch - which still
+	; holds the previous frame's last band GRP0 write. Without this, a mid-glide
+	; player body row bleeds into the score's leading blank digits.
+	sta GRP0
+	sta GRP1
+	sta GRP0
+	sta GRP1
 	jsr DrawDigits          ; HUD lines 1-9 (DrawDigits ends on a WSYNC)
 	; HUD line 10: restore game sprite state
 	lda #0
@@ -370,71 +403,61 @@ VBlankLoop
 	; Six platform bands
 	lda #NUM_BANDS
 	sta bandCount
+	lda #>PlayerBuf         ; player ptr hi byte is constant (page-aligned buffer)
+	sta sprPtr+1
+	lda #COL_PLAYER
+	sta COLUP0              ; player colour is constant across bands (hoisted out)
+	lda #0
+	sta curFloor            ; floor index counts up 0..5 (top band first)
 BandLoop
-	; --- setbg line: background colour, player colour, missile off ---
+	; --- setbg line: air bg + this band's player pointer + line-0 row ---
+	; curFloor is a running counter (no subtract), so the player pointer loads
+	; early enough to write GRP0 for band-local line 0 before the player's x
+	; (pixel 10 ~ cycle 26). This removes the 1-line air-gap notch.
 	sta WSYNC
 	lda #COL_BG
-	sta COLUPF
-	lda #COL_PLAYER
-	sta COLUP0
+	sta COLUPF              ; air bg, set first (well inside HBLANK)
+	ldx curFloor
+	lda sprPtrLoTab,x       ; <PlayerBuf + offset (or <PlayerBuf when not in band)
+	sta sprPtr              ; (sprPtr+1 already = >PlayerBuf, set before the loop)
+	ldy #0
+	lda (sprPtr),y          ; player band-local line 0 ...
+	sta GRP0                ; ... GRP0 written ~cycle 25, before pixel 10
 	lda #0
 	sta ENAM0
 	sta GRP1                ; stage 0: entity off
-	sta GRP0                ; blank player on the positioning lines
 
-	; floor index = NUM_BANDS - bandCount, then position the gap missile
-	; (Pos74M0 consumes exactly one scanline, HMOVE at cycle ~74)
-	lda #NUM_BANDS
-	sec
-	sbc bandCount
-	sta curFloor
-	tay
-	jsr Pos74M0             ; position the gap missile (cycle-74)
-	lda #$80
-	sta HMM0                ; restore no-motion so the next HMOVE won't move it
+	; position the gap missile (cycle-74). Its HBLANK pad also draws the player
+	; on band-local line 1 (see Pos74M0).
 	ldy curFloor
-	jsr Pos74P1             ; position the entity sprite GRP1 (cycle-74)
+	jsr Pos74M0
 	lda #$80
-	sta HMP1                ; restore no-motion
+	sta HMM0                ; restore no-motion
+	; player on band-local line 2 (HBLANK, before the player's x)
+	ldy #2
+	lda (sprPtr),y
+	sta GRP0
+	; position the entity (cycle-74); its pad draws the player on band-local 3
+	ldy curFloor
+	jsr Pos74P1
+	lda #$80
+	sta HMP1
+	; player on band-local line 4
+	ldy #4
+	lda (sprPtr),y
+	sta GRP0
 
-	; --- player pointer for this band (free-Y pointer-offset draw) ---
-	; offset = (curFloor+1)*30 - playerY. If 1..36 the 12-byte body lands inside
-	; this band's 25-line content; else 0 -> PlayerBuf base (leading zeros: the
-	; player isn't in this band, so every content line reads 0).
-	ldx curFloor
-	inx
-	lda BandStartTab,x      ; (curFloor+1)*30 = next band's start scanline
-	sec
-	sbc playerY             ; offset
-	bcc .pZero              ; playerY below this band -> blank
-	beq .pZero
-	cmp #37
-	bcs .pZero              ; offset >= 37 -> blank
-	clc
-	adc #<PlayerBuf
-	sta sprPtr
-	lda #>PlayerBuf
-	adc #0
-	sta sprPtr+1
-	jmp .pPtrDone
-.pZero
-	lda #<PlayerBuf
-	sta sprPtr
-	lda #>PlayerBuf
-	sta sprPtr+1
-.pPtrDone
-
-	; --- content region (25 lines): player (GRP0) + platform colour ---
-	; STAGE 0: entity (GRP1) and the gap missile stay off; we're validating the
-	; free-Y player draw and the kernel timing in isolation.
-	ldy #0                  ; content line 0..24
+	; --- content region (band-local 5..29): player (GRP0) + platform colour ---
+	; STAGE 0: entity (GRP1) and the gap missile stay off; validating the free-Y
+	; player draw + timing. Player is now drawn on lines 1..29 (only line 0 blank).
+	ldy #5                  ; band-local line 5..29
 .pcLoop
 	sta WSYNC
 	; platform colour for this line, set in HBLANK (before pixel 0):
-	;   content 0..13 = sprite/air (bg), 14..18 = green top, 19..24 = grey
-	cpy #14
-	bcc .pcBg
+	;   band-local 5..18 = air (bg), 19..23 = green top, 24..29 = grey
 	cpy #19
+	bcc .pcBg
+	cpy #24
 	bcc .pcGrn
 	lda #COL_GREY
 	bne .pcSetCol
@@ -449,13 +472,16 @@ BandLoop
 	lda (sprPtr),y
 	sta GRP0
 	iny
-	cpy #25
+	cpy #30
 	bne .pcLoop
 
+	inc curFloor            ; advance to the next band's floor index
 	dec bandCount
 	beq .bandsDone
 	jmp BandLoop            ; (band body > 128 bytes, so jmp not bne)
 .bandsDone
+	sta WSYNC               ; complete the last band's final visible line before
+	                        ; overscan blanks it (compensated by one fewer VBLANK line)
 
 	; turn the missile off before leaving the visible area
 	lda #0
@@ -559,6 +585,9 @@ BandLoop
 	sbc playerFloor
 	sta playerBandCount
 
+	; (the per-band player-sprite pointer is now computed in VBLANK's idle cycles,
+	; keeping overscan under its TIM64T budget on glide/fall frames.)
+
 	; build the score's digit pointers for next frame's HUD
 	jsr GetDigitPtrs
 
@@ -583,12 +612,10 @@ Pos74M0
 	sta posJmp
 	lda #>PosTblM0
 	sta posJmp+1
+	ldy #1                  ; player band-local line 1 (preload; Y free after setup)
 	sta WSYNC
-	; 9 cycles of dead time (matches hmove74 calibration)
-	nop                     ; 2
-	nop                     ; 2
-	nop                     ; 2
-	.byte $04,$EA           ; NOP zp (3 cycles)
+	lda (sprPtr),y          ; 5  draw the player row in HBLANK...
+	sta GRP0                ; 3  = 8 cyc dead time (1 less than the old 9)
 .wait74
 	dex
 	bpl .wait74
@@ -608,11 +635,10 @@ Pos74P1
 	sta posJmp
 	lda #>PosTblP1
 	sta posJmp+1
+	ldy #3                  ; player band-local line 3 (preload; Y free after setup)
 	sta WSYNC
-	nop
-	nop
-	nop
-	.byte $04,$EA
+	lda (sprPtr),y          ; 5  draw the player row in HBLANK...
+	sta GRP0                ; 3  = 8 cyc dead time
 .wait74p
 	dex
 	bpl .wait74p
@@ -1443,16 +1469,17 @@ BandStartTab
 	.byte 0, 30, 60, 90, 120, 150, 180
 
 ; Zero-padded player sprite for the pointer-offset free-Y draw. The kernel sets
-; sprPtr = PlayerBuf + offset: offset 0 -> the 25 leading zeros (player not in
-; this band, all blank); offset 1..36 slides the 12-byte body to the right
-; content lines. Page-aligned so (sprPtr),Y never crosses a page boundary
-; (keeps the per-line draw a constant 5 cycles).
+; sprPtr = PlayerBuf + offset: offset 0 -> the 30 leading zeros (player not in
+; this band, all blank); offset 1..41 slides the 12-byte body to the band-local
+; line where the player sits. The kernel indexes (sprPtr),Y with Y = band-local
+; line 1..29, so a 30-byte lead + body + 29-byte tail covers every Y at any
+; offset. Page-aligned so (sprPtr),Y never crosses a page boundary (constant 5c).
 	align $100
 PlayerBuf
-	ds 25, 0                ; leading zeros (offset 0 = blank band)
-PlayerBody                  ; body row 0 = PlayerBuf + 25
+	ds 30, 0                ; leading zeros (offset 0 = blank band; covers L 0..29)
+PlayerBody                  ; body row 0 = PlayerBuf + 30
 	.byte $00,$00,$FC,$FC,$D4,$D4,$D4,$D4,$FC,$FC,$CC,$CC  ; frame doubled (12 rows)
-	ds 24, 0                ; trailing zeros
+	ds 29, 0                ; trailing zeros (covers up to L=29 at max offset 41)
 
 ;-------------------------------------------------------------
 ; Vectors
