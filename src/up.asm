@@ -40,6 +40,8 @@ COL_GREY     = $06      ; platform underside (dark grey)
 COL_PLAYER   = $02      ; player sprite (dark grey)
 
 PLAYER_X     = 10       ; fixed horizontal position of the player
+PREST_OFF    = 7        ; player rest top = floor*30 + 7 (band-local sprite top)
+PLERP        = 3        ; player vertical glide speed (px/frame toward restY)
 
 HUD_LINES    = 12
 NUM_BANDS    = 6
@@ -121,8 +123,10 @@ SFX_VOL      = $0A      ; SFX volume (AUDV0, 0-15)
 	SEG.U vars
 	org $80
 
-playerFloor     ds 1    ; 0 = top tier .. 5 = bottom tier
+playerFloor     ds 1    ; 0 = top tier .. 5 = bottom tier (logical, instant)
 playerBandCount ds 1    ; bandCount value at which to draw the player
+playerY         ds 1    ; visual top scanline of the player (band-region rel.);
+                        ;   lerps toward restY = playerFloor*30+7 (jump/fall glide)
 btnPrev         ds 1    ; fire button state last frame (edge detect)
 bandCount       ds 1    ; bands remaining in the visible kernel
 curFloor        ds 1    ; floor index of the band being drawn
@@ -211,6 +215,8 @@ NewGame
 
 	lda #5
 	sta playerFloor         ; player starts on the bottom tier
+	lda #5*30+PREST_OFF     ; visual Y settled on floor 5 (157)
+	sta playerY
 	lda #0
 	sta btnPrev
 	sta gameState
@@ -373,6 +379,8 @@ BandLoop
 	sta COLUP0
 	lda #0
 	sta ENAM0
+	sta GRP1                ; stage 0: entity off
+	sta GRP0                ; blank player on the positioning lines
 
 	; floor index = NUM_BANDS - bandCount, then position the gap missile
 	; (Pos74M0 consumes exactly one scanline, HMOVE at cycle ~74)
@@ -389,94 +397,60 @@ BandLoop
 	lda #$80
 	sta HMP1                ; restore no-motion
 
-	; pick player sprite (blank unless this is the player's band); on the player
-	; band, select the current run-cycle frame (both frames share a page).
-	lda bandCount
-	cmp playerBandCount
-	bne .blankSpr
-	ldx animFrame
-	lda PlayerFrameLo,x
+	; --- player pointer for this band (free-Y pointer-offset draw) ---
+	; offset = (curFloor+1)*30 - playerY. If 1..36 the 12-byte body lands inside
+	; this band's 25-line content; else 0 -> PlayerBuf base (leading zeros: the
+	; player isn't in this band, so every content line reads 0).
+	ldx curFloor
+	inx
+	lda BandStartTab,x      ; (curFloor+1)*30 = next band's start scanline
+	sec
+	sbc playerY             ; offset
+	bcc .pZero              ; playerY below this band -> blank
+	beq .pZero
+	cmp #37
+	bcs .pZero              ; offset >= 37 -> blank
+	clc
+	adc #<PlayerBuf
 	sta sprPtr
-	lda #>PlayerSprite0
+	lda #>PlayerBuf
+	adc #0
 	sta sprPtr+1
-	jmp .selEnt
-.blankSpr
-	SET_POINTER sprPtr, ZeroSprite
-.selEnt
-	; entity sprite + colour for this floor's type. The low byte is precomputed
-	; (base or pre-shifted slide frame); the page is the base page normally, or
-	; the slide-table page while sliding (entSlide != 0).
-	ldy curFloor
-	ldx entType,y
-	lda EntColorTable,x
-	sta COLUP1
-	lda entDrawLo,y
-	sta entPtr
-	lda #>ZeroSprite        ; base + slide frames all share this page
-	sta entPtr+1
-	lda entRefp,y           ; reflect GRP1 while sliding in (else 0)
-	sta REFP1
+	jmp .pPtrDone
+.pZero
+	lda #<PlayerBuf
+	sta sprPtr
+	lda #>PlayerBuf
+	sta sprPtr+1
+.pPtrDone
 
-	; 2-line top air pad: drops the sprite within the band so its feet land on
-	; the platform below. (GRP0/GRP1 are 0 here from the previous band's clear.)
+	; --- content region (25 lines): player (GRP0) + platform colour ---
+	; STAGE 0: entity (GRP1) and the gap missile stay off; we're validating the
+	; free-Y player draw and the kernel timing in isolation.
+	ldy #0                  ; content line 0..24
+.pcLoop
 	sta WSYNC
-	sta WSYNC
-
-	; sprite window: each body row (7..2) is drawn on TWO scanlines so the
-	; player / entity / cone render at 2x height from the same 8-byte data
-	; (the 2600 has no vertical stretch -- you just hold GRPx for 2 lines).
-	; No pad loop: the positioning lines above already render as background.
-	ldy #SPRITE_H-1         ; 7
-.sprLoop
-	sta WSYNC               ; row y, 1st scanline
+	; platform colour for this line, set in HBLANK (before pixel 0):
+	;   content 0..13 = sprite/air (bg), 14..18 = green top, 19..24 = grey
+	cpy #14
+	bcc .pcBg
+	cpy #19
+	bcc .pcGrn
+	lda #COL_GREY
+	bne .pcSetCol
+.pcGrn
+	lda #COL_GREEN
+	bne .pcSetCol
+.pcBg
+	lda #COL_BG
+.pcSetCol
+	sta COLUPF
+	; player row via pointer-offset (0 on lines the player doesn't occupy)
 	lda (sprPtr),y
 	sta GRP0
-	lda (entPtr),y
-	sta GRP1
-	sta WSYNC               ; row y, 2nd scanline (GRP0/GRP1 hold => 2x tall)
-	dey
-	cpy #1
-	bne .sprLoop            ; rows 7..2 (the body), each twice = 12 lines
-
-	; Still on the last body line (row 2 = feet). After the beam has drawn the
-	; player (~pixel 22), recolour the missile to background and enable the gap:
-	; it stays invisible on this background line, but is then ready CLIP-FREE for
-	; the first green line below -- so the gap shows full-height and the feet sit
-	; directly on the platform (no blank foot row, no float).
-	SLEEP 24                ; wait past the player sprite before recolouring P0
-	lda #COL_BG
-	sta COLUP0
-	ldy curFloor
-	lda GapOnTable,y
-	sta ENAM0
-
-	; green top rows. In green line 1's HBLANK (before pixel 0) clear GRP0/GRP1
-	; AND both VDEL "old" latches (double sta-pair: a GRP1 write refreshes GRP0's
-	; old latch and vice-versa) so the feet don't bleed onto the platform and no
-	; stale entity row reaches the score next frame (where VDELP1=1 displays it).
-	sta WSYNC
-	lda #0
-	sta GRP0
-	sta GRP1
-	sta GRP0
-	sta GRP1
-	lda #COL_GREEN
-	sta COLUPF
-	ldx #BAND_GREEN-1
-.grnLoop
-	sta WSYNC
-	dex
-	bne .grnLoop
-
-	; grey underside rows
-	sta WSYNC
-	lda #COL_GREY
-	sta COLUPF
-	ldx #BAND_GREY-1
-.gryLoop
-	sta WSYNC
-	dex
-	bne .gryLoop
+	iny
+	cpy #25
+	bne .pcLoop
 
 	dec bandCount
 	beq .bandsDone
@@ -507,6 +481,7 @@ BandLoop
 	jsr ReadInput
 	jsr UpdateWorld
 	jsr AnimatePlayer       ; advance the run cycle (frozen while game over)
+	jsr UpdatePlayerY       ; glide the player's visual Y toward its floor
 	jmp .gsAfter
 .gsFrozen
 	jsr CheckRestart        ; world frozen; fresh fire press restarts
@@ -667,10 +642,56 @@ ReadInput
 	bne .store              ; held => no new press
 	lda playerFloor
 	beq .store              ; already at top tier
-	dec playerFloor         ; jump up one tier
+	; only jump when the player is settled (visual Y == rest), not mid-glide
+	ldy playerFloor
+	lda BandStartTab,y
+	clc
+	adc #PREST_OFF
+	cmp playerY
+	bne .store              ; mid-glide -> ignore the press
+	dec playerFloor         ; jump up one tier (logical, instant; Y glides)
 	TRIGGER_SFX SFX_JUMP, JUMP_DUR
 .store
 	stx btnPrev
+	rts
+
+;-------------------------------------------------------------
+; UpdatePlayerY - glide the visual player Y toward its floor's rest Y by PLERP
+;   px/frame (snapping when within PLERP). Drives the jump/fall animation.
+;-------------------------------------------------------------
+UpdatePlayerY
+	ldx playerFloor
+	lda BandStartTab,x
+	clc
+	adc #PREST_OFF          ; A = restY
+	sta tempOne
+	sec
+	sbc playerY             ; restY - playerY
+	beq .pyDone             ; settled
+	bcc .pyUp               ; restY < playerY -> move up (decrease playerY)
+	; restY > playerY: move down. A = diff (positive)
+	cmp #PLERP
+	bcc .pySnap             ; within one step -> snap
+	lda playerY
+	clc
+	adc #PLERP
+	sta playerY
+	rts
+.pyUp
+	eor #$FF
+	clc
+	adc #1                  ; A = playerY - restY (abs)
+	cmp #PLERP
+	bcc .pySnap
+	lda playerY
+	sec
+	sbc #PLERP
+	sta playerY
+	rts
+.pySnap
+	lda tempOne             ; restY
+	sta playerY
+.pyDone
 	rts
 
 ;-------------------------------------------------------------
@@ -821,12 +842,18 @@ UpdateWorld
 	cmp #5
 	bcs .noFall             ; bottom tier is solid/safe
 	tax
+	; only start a fall when the player is settled (not mid-glide)
+	lda BandStartTab,x
+	clc
+	adc #PREST_OFF
+	cmp playerY
+	bne .noFall
 	lda gapX,x
 	cmp #FALL_HI+1
 	bcs .noFall             ; gap is right of the player
 	cmp #FALL_LO
 	bcc .noFall             ; gap is left of the player
-	inc playerFloor         ; fall down one tier
+	inc playerFloor         ; fall down one tier (logical, instant; Y glides)
 	TRIGGER_SFX SFX_DROP, DROP_DUR
 .noFall
 	rts
@@ -1407,6 +1434,25 @@ UpdateSound
 	lda #SFX_VOL
 	sta AUDV0
 	rts
+
+;-------------------------------------------------------------
+; Player vertical-glide data
+;-------------------------------------------------------------
+; Band start scanline per floor (floor*30). 7 entries so [curFloor+1] is valid.
+BandStartTab
+	.byte 0, 30, 60, 90, 120, 150, 180
+
+; Zero-padded player sprite for the pointer-offset free-Y draw. The kernel sets
+; sprPtr = PlayerBuf + offset: offset 0 -> the 25 leading zeros (player not in
+; this band, all blank); offset 1..36 slides the 12-byte body to the right
+; content lines. Page-aligned so (sprPtr),Y never crosses a page boundary
+; (keeps the per-line draw a constant 5 cycles).
+	align $100
+PlayerBuf
+	ds 25, 0                ; leading zeros (offset 0 = blank band)
+PlayerBody                  ; body row 0 = PlayerBuf + 25
+	.byte $00,$00,$FC,$FC,$D4,$D4,$D4,$D4,$FC,$FC,$CC,$CC  ; frame doubled (12 rows)
+	ds 24, 0                ; trailing zeros
 
 ;-------------------------------------------------------------
 ; Vectors
