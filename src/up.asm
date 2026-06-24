@@ -40,7 +40,7 @@ COL_GREY     = $06      ; platform underside (dark grey)
 COL_PLAYER   = $02      ; player sprite (dark grey)
 
 PLAYER_X     = 10       ; fixed horizontal position of the player
-PREST_OFF    = 7        ; player rest top = floor*30 + 7 (band-local sprite top)
+PREST_OFF    = 6        ; player rest top = floor*30 + 6 (band-local sprite top)
 PLERP        = 3        ; player vertical glide speed (px/frame toward restY)
 
 HUD_LINES    = 12
@@ -471,23 +471,20 @@ BandLoop
 	; STAGE 1a: player free-Y on every line; entity (GRP1) drawn 2x in its fixed
 	; band rows (7..18); gap missile still OFF. Air 5..18, green 19..23, grey 24..29.
 
-	; air rows 5..6 (player only; COLUPF still COL_BG from setbg)
+	; air row 5 (player only; COLUPF still COL_BG from setbg). ALT layout: one air
+	; row (was two) so the platform underside can be one grey row thicker.
 	ldy #5
 	sta WSYNC
 	lda (sprPtr),y
 	sta GRP0
-	iny
-	sta WSYNC
-	lda (sprPtr),y
-	sta GRP0
-	iny                     ; y = 7
+	iny                     ; y = 6
 
-	; entity region 7..18: entity rows 7..2 each on TWO lines (2x tall, no vertical
+	; entity region 6..17: entity rows 7..2 each on TWO lines (2x tall, no vertical
 	; stretch on the 2600), player free-Y drawn on every line. Both reads are
 	; (zp),Y, so the entity row tracks in X and the player line in tempOne; the
 	; entity is loaded first since it may sit at x=0 (sliding out the left edge).
-	lda #7
-	sta tempOne             ; player band-local line (7..18)
+	lda #6
+	sta tempOne             ; player band-local line (6..17)
 	ldx #7                  ; entity row 7..2
 .entRegion
 	sta WSYNC               ; 1st line of the pair
@@ -506,17 +503,17 @@ BandLoop
 	inc tempOne
 	dex
 	cpx #1
-	bne .entRegion          ; rows 7..2 -> band-local lines 7..18
+	bne .entRegion          ; rows 7..2 -> band-local lines 6..17
 
-	; preload the gap-enable byte while still on line 18 (the entity's last line),
-	; so line 19's HBLANK can enable + colour the gap missile BEFORE pixel 0.
+	; preload the gap-enable byte while still on line 17 (the entity's last line),
+	; so line 18's HBLANK can enable + colour the gap missile BEFORE pixel 0.
 	; (Doing it late clipped the top row of a left-edge gap.)
 	ldx curFloor
 	lda GapOnTable,x
 	tax                     ; X = ENAM1 enable byte for this floor
 
-	; platform line 19 (green): entity off, gap enabled+coloured, green, player.
-	ldy #19
+	; platform line 18 (green): entity off, gap enabled+coloured, green, player.
+	ldy #18
 	sta WSYNC
 	lda #0
 	sta GRP1                ; entity off (cycle 5)
@@ -527,15 +524,15 @@ BandLoop
 	sta COLUPF              ; green platform (cycle 18, before pixel 0)
 	lda (sprPtr),y
 	sta GRP0                ; player free-Y (cycle ~26; rarely on a platform line)
-	iny                     ; y = 20
+	iny                     ; y = 19
 
-	; platform rows 20..27: player free-Y + green(20..23)/grey(24..27) colour.
-	; Stops at 28 (was 30): 2 fewer grey underside rows per band brings each band
-	; to 30 scanlines (the 2 cycle-74 positioning lines add 2), so visible = 192
-	; and the frame is a standards-compliant 262 NTSC lines.
+	; platform rows 19..27: player free-Y + green(18..22)/grey(23..27) colour.
+	; ALT layout: platform is 10 rows (green 5 + grey 5) -- one more grey underside
+	; row than the committed version, balanced by one fewer air row above. Band is
+	; 30 scanlines (incl. the 2 cycle-74 lines), frame 262 NTSC.
 .platform
 	sta WSYNC
-	cpy #24
+	cpy #23
 	bcc .pfGrn
 	lda #COL_GREY
 	bne .pfSet              ; COL_GREY != 0 -> always taken

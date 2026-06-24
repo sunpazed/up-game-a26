@@ -656,6 +656,18 @@ exactly 262. The player free-Y model is untouched (offset uses the logical 30-pi
 at band-local y7..18, above the trimmed rows) — and the trim *aligns* rendering with the model
 (rendering was 32/band while the model assumed 30; now they match).
 
+Final layout (user-chosen): the trim was rebalanced to **1 air row + 1 grey row** rather than 2 grey
+(sprite shifted up one via `PREST_OFF` 7→6, air 2→1, platform thresholds shifted) — a thicker grey
+underside / tighter air gap that reads better. Still 30-line bands / 262.
+
+**Known accepted limitation — eaten-line glide distortion.** During a jump/fall the player body
+slides up through a band's top (the cycle-74 positioning region), where the 2 "eaten" lines (the
+`sta WSYNC` halt after each HMOVE) hold the previous `GRP0` and so duplicate two sprite rows. The
+duplicated rows shift frame-to-frame as the body moves, so the sprite briefly distorts mid-transition
+(clean at rest / on platforms). It can't be removed cleanly: dropping the realign `WSYNC` to draw on
+those lines desyncs the variable-timing positioning and makes the whole screen jerky (tried, reverted).
+The eaten line is the unavoidable cost of comb-free cycle-74 positioning (×2 objects/band). Accepted.
+
 **Rare frame over-run — analysis + fix.** A very rare (≈once in dozens of games) one-frame roll was
 reported. Ruled out the visible kernel: every band loop is `WSYNC`-exact, the free-running lines 2/4
 start at a fixed cycle (the cycle-74 `PosTbl` always ends `sta HMOVE` @74 + `sta WSYNC`), the wait
