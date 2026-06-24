@@ -344,9 +344,10 @@ NextFrame
 	; THIS frame's band kernel (right after VBLANK), so the ordering is correct.
 	; Doing it here keeps overscan under its TIM64T budget on glide/fall frames.
 	; offset = (band+1)*30 - playerY; 0..41 -> body lands in band, else 0 (blank).
-	ldx #33                 ; remaining VBLANK lines (2 + 33 = 35; one line was
-	                        ; moved to the kernel's closing WSYNC so the bottom
-	                        ; band line renders fully before overscan blanks it)
+	ldx #34                 ; remaining VBLANK lines (2 + 34 = 36). With 30-line
+	                        ; bands (visible 192) + overscan ~31, this lands the
+	                        ; frame on 262 NTSC scanlines. One line still goes to
+	                        ; the kernel's closing WSYNC (bottom band renders fully).
 	ldy #5                  ; band index 5..0 (first 6 loop lines do the precompute)
 VBlankLoop
 	sta WSYNC
@@ -528,7 +529,10 @@ BandLoop
 	sta GRP0                ; player free-Y (cycle ~26; rarely on a platform line)
 	iny                     ; y = 20
 
-	; platform rows 20..29: player free-Y + green(20..23)/grey(24..29) colour
+	; platform rows 20..27: player free-Y + green(20..23)/grey(24..27) colour.
+	; Stops at 28 (was 30): 2 fewer grey underside rows per band brings each band
+	; to 30 scanlines (the 2 cycle-74 positioning lines add 2), so visible = 192
+	; and the frame is a standards-compliant 262 NTSC lines.
 .platform
 	sta WSYNC
 	cpy #24
@@ -542,7 +546,7 @@ BandLoop
 	lda (sprPtr),y
 	sta GRP0
 	iny
-	cpy #30
+	cpy #28
 	bne .platform
 
 	inc curFloor            ; advance to the next band's floor index

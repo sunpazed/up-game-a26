@@ -41,11 +41,16 @@ Per-platform repeated kernel (see `INSTRUCTIONS.md` and `GAME.md` for detail):
 
 ```
 VSYNC      3 lines
-VBLANK    35 lines     ; input edge + per-band player-pointer precompute (idle cycles)
-visible  192 lines     ; HUD region (12) + 6 platform bands (30 each)
-overscan  32 lines     ; TIM64T timer; world update + positioning precompute
-                       ; total = 262 NTSC scanlines
+VBLANK    36 lines     ; input edge + per-band player-pointer precompute (idle cycles)
+visible  192 lines     ; HUD region (12) + 6 platform bands (30 scanlines each)
+overscan ~31 lines     ; TIM64T timer; world update + positioning precompute
+                       ; total = 262 NTSC scanlines (verified in the Stella debugger)
 ```
+
+Note: each band is **30 scanlines** = setbg 1 + two cycle-74 positioning routines (2 lines
+each, the second hidden line absorbs the HMOVE comb) + 2 player/setup lines + air 2 + sprite
+12 + platform 9. The two cycle-74 lines per band are why an earlier build measured 32-line
+bands (273-line frame); trimming 2 grey underside rows per band brought it to a compliant 262.
 
 - Platforms are the **playfield** held solid full-width; band appearance is driven by
   `COLUPF` swaps during HBLANK (background = invisible / green top / grey underside).

@@ -646,6 +646,16 @@ draw the player at an **arbitrary** scanline, not just inside one band's content
   entity lookup tables, and the old 8-byte player frames into the gap after `PosTblP1`.
 - **RAM:** `playerY`, `sprPtrLoTab[6]`; constants `PREST_OFF`, `PLERP`.
 
+**Scanline audit → 262 NTSC.** A Stella-debugger check showed the frame at **273** scanlines, not
+262. Root cause: each band is **32** scanlines, not the assumed 30 — every cycle-74 positioning
+routine (`Pos74M0` gap, `Pos74P1` entity) costs **2** lines, the strobe line plus a line the
+post-HMOVE `sta WSYNC` halts through (which also hides the HMOVE comb). Two positionings/band = +2
+lines × 6 bands = +12, i.e. visible 204 not 192. Pre-existing since M3. Fix: trim 2 grey underside
+rows per band (`platform` loop `cpy #30`→`#28`) → 30-line bands → visible 192; +1 VBLANK line →
+exactly 262. The player free-Y model is untouched (offset uses the logical 30-pitch; the body sits
+at band-local y7..18, above the trimmed rows) — and the trim *aligns* rendering with the model
+(rendering was 32/band while the model assumed 30; now they match).
+
 **Rare frame over-run — analysis + fix.** A very rare (≈once in dozens of games) one-frame roll was
 reported. Ruled out the visible kernel: every band loop is `WSYNC`-exact, the free-running lines 2/4
 start at a fixed cycle (the cycle-74 `PosTbl` always ends `sta HMOVE` @74 + `sta WSYNC`), the wait
