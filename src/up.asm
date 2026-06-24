@@ -89,6 +89,8 @@ SPEED_MAX    = 96       ; cap (= 4.0 px/frame; <= the fall window so falls hold)
 ANIM_BASE    = 22
 
 COL_GAMEOVER = $42      ; red background tint while game over
+RESTART_LOCK = 120      ; frames after death before a fire press can restart
+                        ; (~2s; debounces the death-press / reflexive re-press)
 
 ; HUD score (48-pixel 6-digit method, after examples/6-digit-score.asm)
 THREE_COPIES = %011     ; NUSIZ: 3 close copies (P0 + P1 interleaved = 6 digits)
@@ -165,6 +167,7 @@ sprPtrLoTab     ds 6    ; per-band player-sprite pointer low byte (free-Y draw);
                         ;   = <PlayerBuf + offset, precomputed each frame from playerY
 Digit0          ds 12   ; 6 font pointers (Digit0..Digit5) for the score kernel
 loopCnt         ds 1    ; scanline counter inside DrawDigits
+restartLock     ds 1    ; frames left before a fire press can restart (set on death)
 
 ;-------------------------------------------------------------
 ; ROM
@@ -1022,6 +1025,8 @@ CheckCollision
 .ccSkull
 	lda #1
 	sta gameState
+	lda #RESTART_LOCK
+	sta restartLock         ; lock out restart so the death-press can't restart
 	TRIGGER_SFX SFX_DEATH, DEATH_DUR
 	lda #COL_GAMEOVER
 	sta COLUBK              ; red tint; NewGame restores COL_BG on restart
@@ -1041,20 +1046,8 @@ CheckCollision
 .ccDone
 	rts
 
-;-------------------------------------------------------------
-; CheckRestart - during game over, a fresh fire press restarts.
-;-------------------------------------------------------------
-CheckRestart
-	ldx #0
-	lda INPT4
-	bmi .crStore            ; not pressed
-	ldx #1
-	lda btnPrev
-	bne .crStore            ; held since last frame -> no edge
-	jmp NewGame             ; fresh press -> restart (keeps hiScore)
-.crStore
-	stx btnPrev
-	rts
+; (CheckRestart relocated to the gap after PosTblP1 -- the $f000-$f500 code
+;  region is full.)
 
 ;-------------------------------------------------------------
 ; CalcQuickPos - A = x (0..159) -> A = quickPos
@@ -1246,6 +1239,32 @@ pP1_150
 	sta RESP1
 	sta HMOVE
 	sta WSYNC
+	rts
+
+;-------------------------------------------------------------
+; CheckRestart - during game over, a fire press restarts, but only after the
+; RESTART_LOCK frame lockout has elapsed (so the death-press can't restart).
+; Relocated here (the $f000-$f500 region is full).
+;-------------------------------------------------------------
+CheckRestart
+	ldx #0
+	lda INPT4
+	bmi .crBtn              ; bit7 set = not pressed -> X stays 0
+	ldx #1                  ; pressed
+.crBtn
+	lda restartLock
+	beq .crReady            ; lockout expired -> a fresh press can restart
+	dec restartLock         ; still locked: count down, keep tracking the button
+	stx btnPrev             ; (so holding fire through the lockout won't auto-restart)
+	rts
+.crReady
+	lda btnPrev
+	bne .crStore            ; held since last frame -> no rising edge
+	txa
+	beq .crStore            ; not pressed now -> nothing
+	jmp NewGame             ; fresh press after lockout -> restart (keeps hiScore)
+.crStore
+	stx btnPrev
 	rts
 
 ;-------------------------------------------------------------

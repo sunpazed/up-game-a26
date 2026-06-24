@@ -34,6 +34,8 @@ This project is a DASM Atari 2600 port of the JavaScript game [UP 1 WAY](https:/
   between adjacent floors). Fair empty start (entities slide in, never parked in the jump path).
 - **Performance**: scroll is O(1) (advance by `scrollStep` in one pass), so frame timing stays
   flat at any speed — fixed a high-speed screen roll.
+- **Restart lockout**: a `RESTART_LOCK`-frame delay (~2s) after death before fire can restart, so
+  the death-press (or a reflexive re-press) can't immediately restart the game. 1 RAM byte counter.
 
 ## Kernel Architecture
 

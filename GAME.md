@@ -818,5 +818,13 @@ materially steered the implementation. Recording the key interventions:
   fix. This drove the systematic elimination (visible kernel ruled out as fixed-time; the untimed
   `NewGame` restart path and the overscan `TIM64T` budget identified as the real candidates), and the
   user chose to "start with re-roll" — bounding `NewGame`'s gap re-roll cap as the cheap first step.
+- **Scanline-count check + band proportions.** Verified the frame in the Stella debugger (it read
+  **273**, not 262), correctly intuiting the bands were 32 lines, not 30. Drove the trim to a
+  compliant 262, chose the **1-air / thicker-grey** proportion split, and — after seeing the
+  eaten-line glide distortion — vetoed the risky `WSYNC`-removal fix ("it just missed 2 lines"),
+  choosing to live with it. A precise debugger-driven correction of my wrong scanline estimate.
+- **Game-over restart lockout.** Flagged that pressing fire as the game ends immediately restarts,
+  and asked for a ~frame delay done memory/ROM-efficiently. Implemented as a 1-byte `restartLock`
+  counter (set to `RESTART_LOCK` on death, counted down in `CheckRestart`); tuned 240 → **120** (~2s).
 - **Process: keep the `.md` docs updated between milestones**, with detailed implementation
   writeups — and maintain this steering log.
