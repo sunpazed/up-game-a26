@@ -57,9 +57,11 @@ half is *"do the sprites/colours look right, no comb, no flicker?"* (Stella, vis
   needed. The payoff is **name-annotated output**, e.g. `0x0080 (playerFloor) (RAM) = 0x05`
   and labelled disassembly. (If labels are missing, the `.sym` isn't next to the ROM —
   rebuild.)
-- **Important caveat (Gopher2600):** annotation is *output-only*. You still address targets
-  **numerically** in commands — `peek 0x80`, `break pc 0xf2cd`. A symbol *name* as input does
-  **not** resolve (`peek playerFloor` → "not found in any symbol table"). Look the address up:
+- **Important caveat (Gopher2600):** annotation is *output-only*. Your **DASM source labels**
+  (`playerFloor`, `WaitOverscan`, …) do **not** resolve as command *input* — `peek playerFloor`
+  → "cannot peek address". Address them **numerically** (`peek 0x80`, `break 0xf2cd`). Canonical
+  **hardware** register names *do* resolve as input (`watch write GRP0`, `watch read INPT4`).
+  Look a source label's current address up with grep:
   ```sh
   grep -w playerFloor  build/up.sym     # -> playerFloor  0080
   grep -w WaitOverscan build/up.sym     # -> WaitOverscan f2cd
@@ -173,14 +175,14 @@ frame. `total: 262` = NTSC-compliant.
 **Read the overscan timer margin** (how close the per-frame work is to overrunning `TIM64T`):
 ```sh
 # WaitOverscan is the INTIM spin-loop; INTIM is the RIOT timer at $0284
-printf "break frame 60\nrun\nbreak pc 0xf2cd\nrun\npeek 0x284\nquit\n" \
+printf "break frame 60\nrun\nbreak 0xf2cd\nrun\npeek 0x284\nquit\n" \
   | gopher2600 HEADLESS build/up.a26
 # -> 0x0284 (INTIM) (RIOT) = 0x04   (4 timer ticks ~= 256 CPU cycles of idle margin)
 ```
 
 **Find the exact beam position of a write** (e.g. verify a cycle-74 `sta HMOVE`):
 ```sh
-printf "break pc 0xf520\nrun\ntv\ncpu\nquit\n" | gopher2600 HEADLESS build/up.a26
+printf "break 0xf520\nrun\ntv\ncpu\nquit\n" | gopher2600 HEADLESS build/up.a26
 # -> FR=0001 SL=049 CL=145   (CL is the VISIBLE pixel 0..159; HBLANK is negative.
 #     CL=145 => colour-clock 68+145=213 => CPU cycle ~71-74)
 ```
@@ -227,7 +229,7 @@ SWAP  SYMBOL  TIA  TRACE  TRAP  TV  WATCH
 |---|---|
 | `RUN` | run until the next halt condition (breakpoint/trap/watch) |
 | `STEP` | step one instruction; `STEP SCANLINE` / `STEP FRAME` step larger units |
-| `QUANTUM <cpu\|video>` | set step granularity (instruction vs video cycle) |
+| `QUANTUM <INSTRUCTION\|CYCLE\|CLOCK>` | step granularity: whole instruction / one CPU cycle / one colour clock (3 per CPU cycle) |
 | `HALT` | halt immediately |
 | `GOTO` | run to a specific coordinate |
 | `QUIT` | exit |
@@ -235,7 +237,7 @@ SWAP  SYMBOL  TIA  TRACE  TRAP  TV  WATCH
 ### Halt conditions
 | Command | Example | Notes |
 |---|---|---|
-| `BREAK` | `break frame 60`, `break pc 0xf520`, `break sl 100` | halt when a target hits a value. Targets incl. `FRAME`, `SL` (scanline), `PC`, `CL` (clock). **`PC` must be named** (`break pc <addr>`). |
+| `BREAK` | `break 0xf520`, `break frame 60`, `break sl 100` | halt when a target hits a value. A bare address breaks on **PC** (the default target; `break pc 0xf520` is equivalent — the `pc` keyword is optional). Other targets are named: `FRAME`, `SL` (scanline), `CL` (clock). |
 | `TRAP` | `trap sl` | halt when a target *changes* |
 | `WATCH` | `watch write GRP0`, `watch read INPT4` | halt on memory access; great for catching a stray write (e.g. score VDEL bleed) |
 | `LIST` / `DROP` / `CLEAR` | `list`, `drop 0`, `clear` | review / delete halt conditions |
@@ -283,7 +285,11 @@ SWAP  SYMBOL  TIA  TRACE  TRAP  TV  WATCH
   and fix the address/syntax. Prefer numeric addresses from `build/up.sym`.
 - **`STICK` needs the port word:** `stick left fire` works; `stick fire` and `stick 0 fire`
   are rejected ("unrecognised argument").
-- **`BREAK PC` needs the `pc` keyword:** `break pc 0xf520`, not `break 0xf520`.
+- **Break on a *symbol name* silently fails, then `run` hangs.** `break WaitOverscan` doesn't
+  resolve (DASM source labels aren't valid command input), so no breakpoint is set and `run`
+  never halts. Use a **numeric address** (`break 0xf2cd`); the `pc` keyword is *optional*
+  (`break 0xf2cd` ≡ `break pc 0xf2cd`). Built-in hardware register names *do* resolve
+  (e.g. `watch write GRP0`).
 - **`CL` (clock) is the visible pixel 0..159**, with HBLANK as *negative* clocks. Convert to
   CPU cycle via `cycle ≈ (68 + CL) / 3`.
 - **`tv frame` reports the frame that just completed**, so to read frame *N* break at frame
