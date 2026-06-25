@@ -2,7 +2,7 @@
 
 This project is a DASM Atari 2600 port of the JavaScript game [UP 1 WAY](https://abagames.github.io/crisp-game-lib-11-games/?up1way) (see `js/main.js`). The target is a complete, playable 4K cart. 
 
-▶️ **[Play it online in your browser (Javatari)](https://javatari.org/?ROM=https://github.com/sunpazed/up-game-a26/raw/refs/heads/main/releases/up-1-way.a26)** — no install needed.
+**[Play the completed Atari 2600 game in your browser](https://javatari.org/?ROM=https://github.com/sunpazed/up-game-a26/raw/refs/heads/main/releases/up-1-way.a26)**
 
 ## Current Status
 
