@@ -36,6 +36,8 @@ This project is a DASM Atari 2600 port of the JavaScript game [UP 1 WAY](https:/
   flat at any speed — fixed a high-speed screen roll.
 - **Restart lockout**: a `RESTART_LOCK`-frame delay (~2s) after death before fire can restart, so
   the death-press (or a reflexive re-press) can't immediately restart the game. 1 RAM byte counter.
+- **Clean restart frame**: `NewGame` pads through `WaitOverscan` so the restart frame is a full
+  262 scanlines (it was ~246, a one-frame roll). Verified with the emulator harness.
 
 ## Kernel Architecture
 
@@ -78,6 +80,14 @@ make
 ```
 
 Then load `build/up.a26` in Stella to verify and save a snapshot to `build/up.png`.
+
+## Testing / verification
+
+Two complementary emulators back this project — **Stella** for human/visual checks
+(screenshots) and **Gopher2600** for headless, scriptable timing/state verification (e.g.
+asserting every frame is 262 scanlines, injecting controller input, inspecting RAM). See
+**[`EMULATOR.md`](EMULATOR.md)** for the full harness: setup, command reference, recipes,
+and the `.sym` symbol workflow.
 
 ## Authorship
 

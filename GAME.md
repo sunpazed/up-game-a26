@@ -680,6 +680,18 @@ the cap change. (Secondary suspect, not needed in the end: a heavy gameplay fram
 several simultaneous entity transitions, each `jsr Rng`/`SetRespawnDelay` — tipping overscan past
 `TIM64T`; if it ever recurs, the fix is to shift idle VBLANK lines into the timer budget.)
 
+**Restart-frame length — measured + fixed (Gopher2600 harness).** With a headless emulator
+(see `EMULATOR.md`) the restart was measured directly: the restart frame was a consistent
+**246 scanlines (16 *short*, not over)** across many RNG seeds — `NewGame`, reached mid-overscan
+via `CheckRestart`, fell straight into `NextFrame`'s VSYNC, skipping the `WaitOverscan` timer pad,
+so the frame ended early (a one-frame roll). Fix: `NewGame` now ends `jmp WaitOverscan` (the
+overscan `TIM64T` is already running when `CheckRestart` jumps in, so it pads to a full 262); the
+boot path arms `TIM64T`/`VBLANK` in the one-time setup so its `NewGame → WaitOverscan` is bounded.
+Emulator-validated: restart frame 246 → **262**, gameplay and post-restart frames 262, boot a
+single power-on frame then 262. Also measured the overscan idle margin (`INTIM` at `WaitOverscan`)
+= **4 ticks (~256 cyc)**, and confirmed bands are 30 scanlines and the gap `sta HMOVE` lands at
+~cycle 74 — all numbers I had previously only estimated.
+
 ### Polish / QoL (post-M6)
 - **Sound:** frame-timed engine on TIA channel 0 (`UpdateSound`, `sfxId`/`sfxTimer`) — jump (rising
   tone), drop (falling), cone (two-note coin), death (two white-noise bursts). Triggered at the

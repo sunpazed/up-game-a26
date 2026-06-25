@@ -210,6 +210,14 @@ Reset
 	sta AUDV0               ; silence both audio channels at boot
 	sta AUDV1
 
+	; Arm the overscan timer + blanking for the boot path: NewGame ends with
+	; jmp WaitOverscan, which needs a running TIM64T. (A game-over restart reaches
+	; NewGame mid-overscan with these already set, so it skips this.)
+	lda #2
+	sta VBLANK
+	lda #35
+	sta TIM64T
+
 ;-------------------------------------------------------------
 ; NewGame - (re)start a round. Reached from Reset and from a game-over
 ; restart. Resets all gameplay state but NOT hiScore (or rng).
@@ -309,6 +317,13 @@ NewGame
 	bpl .ngEnt
 
 	jsr GetDigitPtrs        ; seed digit pointers for the first HUD
+
+	; A restart reaches NewGame via CheckRestart mid-overscan, with the overscan
+	; TIM64T timer already running. Pad out the rest of overscan (WaitOverscan)
+	; instead of falling straight into VSYNC, so the restart frame is a full 262
+	; lines, not ~246. (At boot the timer isn't armed, but a power-on frame or two
+	; being off is invisible.)
+	jmp WaitOverscan
 
 ;-------------------------------------------------------------
 ; Main frame loop
