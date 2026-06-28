@@ -21,6 +21,7 @@ command -v "$GOPHER" >/dev/null 2>&1 || { echo "ERROR: '$GOPHER' not found (set 
 
 sym()   { awk -v n="$1" '$1==n{print "0x"$2; exit}'              "$SYM"; }  # label -> 0xADDR
 symlo() { awk -v n="$1" '$1==n{print "0x"substr($2,3,2); exit}'  "$SYM"; }  # label -> 0xLO (low byte)
+off()   { printf '0x%02x' "$(( $1 + $2 ))"; }                               # 0xADDR + N -> byte-array element
 
 pass=0; fail=0
 # check NAME WANT CMDS  -- run CMDS headless, pass if stdout contains WANT (literal)
@@ -83,6 +84,28 @@ check "go-cycle SCORE @100" "(Digit0) (RAM) = $GLYPH_SCORE" \
   "$GOCYC\npoke $GC 100\nbreak frame 61\nrun\npeek $D0\nquit\n"
 check "go-cycle HI @180" "(Digit0) (RAM) = $GLYPH_HI" \
   "$GOCYC\npoke $GC 180\nbreak frame 61\nrun\npeek $D0\nquit\n"
+
+# --- Collision (CXPPMM): drop an entity onto the player's floor (5) at the
+#     player's x (10) so the GRP0/GRP1 sprites overlap, then read the outcome a
+#     few frames later (the entity renders the frame after the poke; collision
+#     latches that frame, CheckCollision acts on it in the same overscan). ---
+ET5=$(off "$(sym entType)" 5); EX5=$(off "$(sym entX)" 5); ES5=$(off "$(sym entSlide)" 5)
+SC=$(sym scoreBCD)
+check "cone -> +1 score" "(scoreBCD) (RAM) = 0x01" \
+  "break frame 60\nrun\npoke $ET5 1\npoke $EX5 10\npoke $ES5 0\nbreak frame 63\nrun\npeek $SC\nquit\n"
+check "skull -> game over" "(gameState) (RAM) = 0x01" \
+  "break frame 60\nrun\npoke $ET5 2\npoke $EX5 10\npoke $ES5 0\nbreak frame 63\nrun\npeek $GS\nquit\n"
+# --- High score: a fatal hit while the run (0x34) beats the stored hi (0x00)
+#     copies the score into hiScore on death ---
+check "hi-score on death" "(hiScore) (RAM) = 0x34" \
+  "break frame 60\nrun\npoke $SC 0x34\npoke $ET5 2\npoke $EX5 10\npoke $ES5 0\nbreak frame 63\nrun\npeek $(sym hiScore)\nquit\n"
+
+# --- Fall-through: a gap in the fall window under a settled player drops them
+#     one floor.  Force the player onto floor 4 (settled: playerY = 4*30+6 = 126)
+#     and put a gap on floor 4 inside [FALL_LO..FALL_HI]; expect floor 5. ---
+GX4=$(off "$(sym gapX)" 4); PY=$(sym playerY)
+check "gap fall 4->5" "(playerFloor) (RAM) = 0x05" \
+  "break frame 60\nrun\npoke $PF 4\npoke $PY 126\npoke $GX4 17\nbreak frame 62\nrun\npeek $PF\nquit\n"
 
 echo
 echo "------------------------------------"

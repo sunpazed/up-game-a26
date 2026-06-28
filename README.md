@@ -92,6 +92,11 @@ asserting every frame is 262 scanlines, injecting controller input, inspecting R
 **[`EMULATOR.md`](EMULATOR.md)** for the full harness: setup, command reference, recipes,
 and the `.sym` symbol workflow.
 
+A runnable regression suite lives at **[`tests/run.sh`](tests/run.sh)** (`make && tests/run.sh`),
+documented in **[`tests/TESTS.md`](tests/TESTS.md)** — 16 headless checks covering frame
+timing, restart, jump/fall, cone/skull collision, high score, the restart lockout, and the
+game-over text cycle. It exits non-zero on any failure, so it doubles as a CI gate.
+
 ## Authorship
 
 Co-authored with Opus 4.8, it took approximately 1.9M tokens to generate this code. Review `GAME.md` to track the progress of this games development, including the examples and developer steering required to generate a stable graphics kernel and coherant Atari 2600 game.

@@ -692,7 +692,10 @@ boot path arms `TIM64T`/`VBLANK` in the one-time setup so its `NewGame → WaitO
 Emulator-validated: restart frame 246 → **262**, gameplay and post-restart frames 262, boot a
 single power-on frame then 262. Also measured the overscan idle margin (`INTIM` at `WaitOverscan`)
 = **4 ticks (~256 cyc)**, and confirmed bands are 30 scanlines and the gap `sta HMOVE` lands at
-~cycle 74 — all numbers I had previously only estimated.
+~cycle 74 — all numbers I had previously only estimated. These invariants are now locked by a
+runnable regression suite — `tests/run.sh` (16 headless checks), documented in `tests/TESTS.md`
+— so a future change that re-breaks frame timing, restart, collision, or the game-over cycle
+fails the suite instead of needing a manual re-measure.
 
 ### Polish / QoL (post-M6)
 - **Sound:** frame-timed engine on TIA channel 0 (`UpdateSound`, `sfxId`/`sfxTimer`) — jump (rising

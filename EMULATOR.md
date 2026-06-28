@@ -318,15 +318,24 @@ gap `sta HMOVE 0xf520` (`pM0_150 + 2`; stable since it's after `org $f500`).
 
 ---
 
-## 7. Suggested autonomous checks (future `make verify`)
+## 7. Autonomous regression suite
 
-A small script can assert invariants and fail CI on regression:
-- **Frame size:** `tv frame` → `total` must equal **262** at several frames (start,
-  mid-gameplay, game-over, the restart frame).
-- **Overscan margin:** `INTIM` at `WaitOverscan` must be `> 0` (work stays under the timer).
-- **Restart:** force game-over + injected fire after the lockout → `gameState` returns to 0
-  and the restart frame is 262.
-- **Lockout:** fire during the lockout window must not restart.
+These invariants are implemented as a runnable suite — **[`tests/run.sh`](tests/run.sh)**,
+documented in **[`tests/TESTS.md`](tests/TESTS.md)**:
 
-Pattern: run each scenario headless, `grep` the expected line, and exit non-zero if the
-value is wrong. Because the harness is headless and deterministic, these run unattended.
+```sh
+make && tests/run.sh                          # `gopher2600` on PATH
+GOPHER=/path/to/gopher2600 tests/run.sh       # explicit binary
+```
+
+It pipes a debugger script per check to `gopher2600 HEADLESS`, greps stdout for an expected
+literal, and exits non-zero if any check fails (CI-friendly). Addresses are resolved from
+`build/up.sym` at runtime, so it survives rebuild address shifts. Current coverage: frame
+size (262 at several frames), overscan margin, restart frame/fires, jump, fall-through,
+cone/skull collision, high-score-on-death, restart lockout (block + expire), and the
+3-phase game-over text cycle. See `tests/TESTS.md` for the per-check breakdown and the
+mutation-testing rationale (proving each check actually fails when its behaviour breaks).
+
+Pattern for new checks: run a scenario headless, `poke` the setup, `peek` the
+post-condition, `grep` the expected line. Because the harness is headless and deterministic,
+these run unattended.
