@@ -332,8 +332,8 @@ It pipes a debugger script per check to `gopher2600 HEADLESS`, greps stdout for 
 literal, and exits non-zero if any check fails (CI-friendly). Addresses are resolved from
 `build/up.sym` at runtime, so it survives rebuild address shifts. Current coverage: frame
 size (262 at several frames), overscan margin, restart frame/fires, jump, fall-through,
-cone/skull collision, high-score-on-death, restart lockout (block + expire), and the
-3-phase game-over text cycle. See `tests/TESTS.md` for the per-check breakdown and the
+cone/skull collision, high-score-on-death, a mid-glide false-death guard, restart lockout
+(block + expire), and the 3-phase game-over text cycle. See `tests/TESTS.md` for the per-check breakdown and the
 mutation-testing rationale (proving each check actually fails when its behaviour breaks).
 
 Pattern for new checks: run a scenario headless, `poke` the setup, `peek` the

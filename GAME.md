@@ -693,9 +693,23 @@ Emulator-validated: restart frame 246 → **262**, gameplay and post-restart fra
 single power-on frame then 262. Also measured the overscan idle margin (`INTIM` at `WaitOverscan`)
 = **4 ticks (~256 cyc)**, and confirmed bands are 30 scanlines and the gap `sta HMOVE` lands at
 ~cycle 74 — all numbers I had previously only estimated. These invariants are now locked by a
-runnable regression suite — `tests/run.sh` (16 headless checks), documented in `tests/TESTS.md`
+runnable regression suite — `tests/run.sh` (17 headless checks), documented in `tests/TESTS.md`
 — so a future change that re-breaks frame timing, restart, collision, or the game-over cycle
 fails the suite instead of needing a manual re-measure.
+
+**M9 glide vs. collision — false death "while eating a cone" (found in play, fixed).** A
+player report (game-over while sitting on a cone, score still climbing) exposed a latent bug
+the M9 free-Y glide introduced. `CXPPMM` is a single global P0/P1 collision latch with no
+floor information, and `CheckCollision` attributed any hit to `entType[playerFloor]`. That
+was sound pre-M9 (the player snapped to its floor, so `playerFloor` always matched the
+rendered band), but the glide updates `playerFloor` instantly on a jump/fall while `playerY`
+catches up over several frames. Mid-glide the sprite is still drawn over the band it is
+leaving — so a hit there (e.g. a cone on the floor just left) was charged to the *destination*
+floor's entity (a skull), killing the player. Fix: `CheckCollision` now resolves a hit only
+when the player is **settled** (`playerY == BandStartTab[playerFloor] + PREST_OFF`), so the
+sprite is wholly within its own band and `entType[playerFloor]` is the entity actually
+touched; mid-glide hits are skipped and re-check on landing. The bug and fix are pinned by a
+new regression check (`glide: no false death`), verified to flip `0x01`→`0x00` with the gate.
 
 ### Polish / QoL (post-M6)
 - **Sound:** frame-timed engine on TIA channel 0 (`UpdateSound`, `sfxId`/`sfxTimer`) — jump (rising

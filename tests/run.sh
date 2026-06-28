@@ -107,6 +107,17 @@ GX4=$(off "$(sym gapX)" 4); PY=$(sym playerY)
 check "gap fall 4->5" "(playerFloor) (RAM) = 0x05" \
   "break frame 60\nrun\npoke $PF 4\npoke $PY 126\npoke $GX4 17\nbreak frame 62\nrun\npeek $PF\nquit\n"
 
+# --- Regression (M9 glide vs collision): a CXPPMM hit while the player is
+#     mid-glide must NOT be charged to entType[playerFloor].  Put the player
+#     logically on floor 5 (skull) but rendered over floor 4 (playerY=126,
+#     gliding, NOT settled for floor 5) where a cone sits at the player's x.
+#     The real hit is the cone; before the settled-gate the code read
+#     entType[5]=skull and falsely killed the player "while eating a cone".
+#     Expect NO death mid-glide (it dies correctly only once settled on 5). ---
+ET4=$(off "$(sym entType)" 4); EX4=$(off "$(sym entX)" 4); ES4=$(off "$(sym entSlide)" 4)
+check "glide: no false death" "(gameState) (RAM) = 0x00" \
+  "break frame 60\nrun\npoke $PF 5\npoke $PY 126\npoke $ET4 1\npoke $EX4 10\npoke $ES4 0\npoke $ET5 2\npoke $EX5 10\npoke $ES5 0\nbreak frame 64\nrun\npeek $GS\nquit\n"
+
 echo
 echo "------------------------------------"
 echo "$pass passed, $fail failed"

@@ -1004,9 +1004,20 @@ SetRespawnDelay
 CheckCollision
 	lda CXPPMM
 	bpl .ccDone             ; bit7 (P0-P1) clear -> player didn't touch an entity
-	; player's GRP0 only draws on its own floor, so a P0-P1 hit is the
-	; entity on playerFloor. Act on its type.
+	; CXPPMM is a single global P0-P1 latch with no floor info. With the M9
+	; vertical glide the player is drawn at playerY, so mid-glide the sprite
+	; straddles the band it is leaving/entering -- a hit there belongs to a
+	; DIFFERENT floor's entity than the (instant) playerFloor, which would e.g.
+	; read a skull on the destination floor while the player is still rendered
+	; over a cone on the floor it left. Only trust entType[playerFloor] when the
+	; player is settled (visual Y == rest) and thus wholly within its own band;
+	; mid-glide, skip -- the hit re-checks for real once the player lands.
 	ldx playerFloor
+	lda BandStartTab,x
+	clc
+	adc #PREST_OFF
+	cmp playerY
+	bne .ccDone             ; mid-glide -> ambiguous floor, skip this frame
 	lda entType,x
 	beq .ccDone             ; guard: no entity here
 	cmp #ENT_SKULL

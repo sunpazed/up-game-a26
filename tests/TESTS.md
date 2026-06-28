@@ -78,6 +78,16 @@ collision latch fires and `CheckCollision` acts on it.
 | `cone -> +1 score`   | cone on the player | `scoreBCD = 0x01` — collecting a cone scores |
 | `skull -> game over` | skull on the player | `gameState = 0x01` — a skull kills |
 | `hi-score on death`  | run score `0x34` > stored hi `0x00`, then a fatal skull | `hiScore = 0x34` — the high score is updated on death |
+| `glide: no false death` | player logically on the skull floor 5 but rendered over floor 4's cone while gliding (`playerY` not settled) | `gameState = 0x00` — a `CXPPMM` hit mid-glide is **not** charged to `entType[playerFloor]` |
+
+The last check is a regression guard for the M9 vertical-glide bug: `CXPPMM` is a single
+global P0/P1 latch with no floor information, and the player is drawn at `playerY` (which
+glides while `playerFloor` updates instantly), so mid-glide a hit on the band the player is
+leaving/entering belongs to a *different* floor's entity than `playerFloor`. `CheckCollision`
+now only resolves a hit when the player is **settled** (`playerY == playerFloor*30 + 6`),
+so the sprite is wholly within its own band; mid-glide it is skipped and re-checks on landing.
+Verified to discriminate: with the gate removed the player falsely dies (`0x01`) while
+visually eating the cone — exactly the reported bug.
 
 ### Restart lockout
 | Check | Setup | Asserts |

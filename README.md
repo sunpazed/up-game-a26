@@ -93,9 +93,10 @@ asserting every frame is 262 scanlines, injecting controller input, inspecting R
 and the `.sym` symbol workflow.
 
 A runnable regression suite lives at **[`tests/run.sh`](tests/run.sh)** (`make && tests/run.sh`),
-documented in **[`tests/TESTS.md`](tests/TESTS.md)** — 16 headless checks covering frame
-timing, restart, jump/fall, cone/skull collision, high score, the restart lockout, and the
-game-over text cycle. It exits non-zero on any failure, so it doubles as a CI gate.
+documented in **[`tests/TESTS.md`](tests/TESTS.md)** — 17 headless checks covering frame
+timing, restart, jump/fall, cone/skull collision, high score, the restart lockout, the
+game-over text cycle, and a guard against false deaths while the player is mid-glide. It
+exits non-zero on any failure, so it doubles as a CI gate.
 
 ## Authorship
 
