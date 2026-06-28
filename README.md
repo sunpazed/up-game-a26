@@ -17,7 +17,8 @@ This project is a DASM Atari 2600 port of the JavaScript game [UP 1 WAY](https:/
 - **M3 — Scrolling gaps (Missile 0) + fall-through**: ✅ done, verified in Stella
   (edge-to-edge cycle-74 positioning, no comb, stable player).
 - **M4 — Entities (cones/skulls) + collision**: ✅ done — cone → +score, skull → game over.
-- **M5 — HUD**: ✅ done — score (`__nnnn`), GAME OVER text, persistent HI-score.
+- **M5 — HUD**: ✅ done — score (`__nnnn`), and a 3-phase game-over cycle
+  (GAMEOVER → last game's score → persistent HI-score, 80 frames each).
 - **M6 — Spawn spacing + sub-pixel speed-up + spawn-clear-of-gaps**: ✅ done.
 - **M7 — Object animations + edge slide**: ✅ player run-cycle (speed-linked), and entities
   slide in/out at both screen edges (pre-shifted sprites + hardware reflect). Cone/skull

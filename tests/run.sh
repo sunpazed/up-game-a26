@@ -74,12 +74,12 @@ check "overscan-margin" "(INTIM) (RIOT) = 0x04" \
   "break frame 60\nrun\nbreak $WO\nrun\npeek 0x284\nquit\n"
 
 # --- Game-over text cycle.  Digit0+0 low byte = leftmost glyph for the phase.
-#     BASELINE = 2 phases: GAMEOVER (goCnt 0-119), HI (120-239).
+#     3 phases of 80 frames: GAMEOVER (0-79), last-score "__nnnn" (80-159), HI (160-239).
 #     (poke goCnt to a phase; overscan increments it then rebuilds the pointers.) ---
 GOCYC="break frame 60\nrun\npoke $GS 0x01"
 check "go-cycle GAMEOVER @40" "(Digit0) (RAM) = $GLYPH_GO" \
   "$GOCYC\npoke $GC 40\nbreak frame 61\nrun\npeek $D0\nquit\n"
-check "go-cycle GAMEOVER @100" "(Digit0) (RAM) = $GLYPH_GO" \
+check "go-cycle SCORE @100" "(Digit0) (RAM) = $GLYPH_SCORE" \
   "$GOCYC\npoke $GC 100\nbreak frame 61\nrun\npeek $D0\nquit\n"
 check "go-cycle HI @180" "(Digit0) (RAM) = $GLYPH_HI" \
   "$GOCYC\npoke $GC 180\nbreak frame 61\nrun\npeek $D0\nquit\n"

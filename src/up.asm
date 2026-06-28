@@ -155,7 +155,7 @@ sfxTimer        ds 1    ; frames left in the current sound effect
 gameState       ds 1    ; 0 = playing, 1 = game over
 scoreBCD        ds 3    ; BCD score (low 4 digits shown)
 hiScore         ds 2    ; 4-digit BCD high score (persists across games)
-goCnt           ds 1    ; game-over text cycle: 0-119 GAMEOVER, 120-239 HInnnn
+goCnt           ds 1    ; game-over text cycle (3x80 frames): GAMEOVER / last score / HInnnn
 animFrame       ds 1    ; player run-cycle frame (0 or 1)
 animTimer       ds 1    ; frames left until the next player-frame swap
 entSlide        ds 6    ; per-floor edge-slide state: 0 = normal; 1..7 = sliding
@@ -602,7 +602,8 @@ BandLoop
 	jsr CheckRestart        ; world frozen; fresh fire press restarts
 .gsAfter
 	jsr UpdateSound         ; advance SFX every frame (incl. the game-over freeze)
-	; game-over text cycle: 240-frame period (120 GAMEOVER + 120 HInnnn)
+	; game-over text cycle: 240-frame period, 3 phases of 80 (GAMEOVER / last
+	; game's score / HInnnn) -- the phase split is in GetDigitPtrs
 	inc goCnt
 	lda goCnt
 	cmp #240
@@ -1397,7 +1398,9 @@ DrawDigits
 GetDigitPtrs
 	lda gameState
 	bne .goText
-	; --- playing: score "__nnnn" (blank leftmost two, low 4 BCD digits) ---
+.scoreText
+	; --- playing, OR the game-over "last score" phase: "__nnnn" (blank leftmost
+	; two, low 4 BCD digits). scoreBCD survives game over -- only NewGame clears it.
 	lda #<BlankGlyph
 	sta Digit0+0
 	sta Digit0+2
@@ -1422,10 +1425,15 @@ GetDigitPtrs
 	bpl .gdpLoop
 	jmp .setHi
 .goText
-	; --- game over: alternate "GAMEOVER" and "HInnnn" every 120 frames ---
+	; --- game over: 3-phase cycle, 80 frames each (goCnt wraps at 240):
+	;   0-79 GAMEOVER, 80-159 last game's score "__nnnn", 160-239 HInnnn ---
 	lda goCnt
-	cmp #120
-	bcs .goHi               ; goCnt 120-239 -> HInnnn
+	cmp #80
+	bcc .goOver             ; 0-79: GAMEOVER
+	cmp #160
+	bcc .scoreText          ; 80-159: last game's score (reuse the score path)
+	jmp .goHi               ; 160-239: HInnnn
+.goOver
 	; "GAMEOVER" packed across the 6 glyph slots
 	lda #<GameOverGlyphs
 	sta Digit0+0

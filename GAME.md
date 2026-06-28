@@ -556,11 +556,13 @@ The 6-glyph kernel is reused for three displays (each just a different set of `D
 pointers, all into the one page-aligned `FontTable`):
 - **Playing:** `__nnnn` — leftmost two glyphs are `BlankGlyph`, the rest are the low 4 BCD score
   digits.
-- **Game over:** `GetDigitPtrs` alternates between **"GAMEOVER"** (6 user-supplied glyphs
-  packing 8 letters into 48px) and **"HI" + 4-digit high score** (`LetterH`/`LetterI` +
-  `hiScore` digits). `goCnt` cycles 0-239 in overscan; 0-119 shows GAMEOVER, 120-239 shows
-  HInnnn (≈2 s each). The user's GAMEOVER bytes were top-row-first, so each glyph's 8 bytes are
-  reversed to the kernel's bottom-row-first order.
+- **Game over:** `GetDigitPtrs` cycles **three** displays via `goCnt` (0-239 in overscan, now
+  split 3×80 ≈ 1.3 s each): **0-79 "GAMEOVER"** (6 user-supplied glyphs packing 8 letters into
+  48px), **80-159 the last game's score "__nnnn"** (reuses the playing-score path — `scoreBCD`
+  survives game over, only `NewGame` clears it), and **160-239 "HI" + 4-digit high score**
+  (`LetterH`/`LetterI` + `hiScore`). The score phase was added later so the player sees what they
+  just scored, not only the all-time high. The user's GAMEOVER bytes were top-row-first, so each
+  glyph's 8 bytes are reversed to the kernel's bottom-row-first order.
 
 **High score + soft reset.** `hiScore[2]` (4-digit BCD) is updated to `max(hiScore, score)` on
 death (in `CheckCollision`'s skull path). To keep it across deaths, init was split: **`Reset`**
